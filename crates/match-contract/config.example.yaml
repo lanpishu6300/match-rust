@@ -1,0 +1,16 @@
+shard: 0
+startup_delay_ms: 10000
+start_queue_ttl_ms: 720000
+depth_push_interval_ms: 50
+symbol_workers: 30
+rocketmq:
+  name_server: "192.168.0.241:9876"
+  consumer_group: "usdt_contract_match_channel_one_group"
+redis:
+  cluster_nodes: ["192.168.0.241:7001"]
+  password: ""
+rpc:
+  market_base_url: "http://contract-market-host"
+  order_base_url: "http://contract-order-host"
+match:
+  symbols_whitelist: []  # empty = all shard symbols
