@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use bigdecimal::BigDecimal;
 
+use crate::depth::depth_levels_from_orders;
 use crate::order::{compare_buy, compare_sell, BbOrder, Side};
 
 #[derive(Debug, Clone)]
@@ -140,42 +141,9 @@ impl OrderBook {
 
     /// Depth snapshot: up to `limit` price levels with qty aggregated per level.
     pub fn depth_levels(&self, side: Side, limit: usize) -> Vec<(BigDecimal, BigDecimal)> {
-        if limit == 0 {
-            return Vec::new();
-        }
-
-        let mut levels: Vec<(BigDecimal, BigDecimal)> = Vec::new();
-
         match side {
-            Side::Buy => {
-                for entry in self.buys.iter() {
-                    push_depth_level(&mut levels, limit, &entry.0.trust_price, &entry.0.remaining_number);
-                }
-            }
-            Side::Sell => {
-                for entry in self.sells.iter() {
-                    push_depth_level(&mut levels, limit, &entry.0.trust_price, &entry.0.remaining_number);
-                }
-            }
+            Side::Buy => depth_levels_from_orders(self.buys.iter().map(|e| e.0.clone()), limit),
+            Side::Sell => depth_levels_from_orders(self.sells.iter().map(|e| e.0.clone()), limit),
         }
-
-        levels
-    }
-}
-
-fn push_depth_level(
-    levels: &mut Vec<(BigDecimal, BigDecimal)>,
-    limit: usize,
-    price: &BigDecimal,
-    qty: &BigDecimal,
-) {
-    if let Some((last_price, last_qty)) = levels.last_mut() {
-        if last_price == price {
-            *last_qty += qty;
-            return;
-        }
-    }
-    if levels.len() < limit {
-        levels.push((price.clone(), qty.clone()));
     }
 }

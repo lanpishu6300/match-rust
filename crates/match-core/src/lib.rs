@@ -1,6 +1,7 @@
 //! Pure matching engine (no MQ/Redis/HTTP).
 
 mod book;
+mod depth;
 mod engine;
 mod event;
 mod handlers;
