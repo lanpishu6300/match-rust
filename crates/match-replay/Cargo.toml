@@ -3,8 +3,14 @@ name = "match-replay"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "match-replay"
+path = "src/main.rs"
+
 [dependencies]
 match-core = { path = "../match-core" }
 match-protocol = { path = "../match-protocol" }
-serde_json = { workspace = true }
+bigdecimal = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -227,9 +227,11 @@ dependencies = [
 name = "match-replay"
 version = "0.1.0"
 dependencies = [
+ "bigdecimal",
  "clap",
  "match-core",
  "match-protocol",
+ "serde",
  "serde_json",
 ]
 

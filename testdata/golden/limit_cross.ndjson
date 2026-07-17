@@ -1,0 +1,5 @@
+{"seq":0,"op":"input","order":{"orderType":2,"trustPrice":"100","trustNumber":"1","trustOrderNo":"s1","createTime":1,"orderForm":1,"symbolKey":"btcusdt"}}
+{"seq":1,"op":"depth","symbol":"btcusdt","bids":[],"asks":[["100","1"]]}
+{"seq":2,"op":"input","order":{"orderType":1,"trustPrice":"100","trustNumber":"1","trustOrderNo":"b1","createTime":2,"orderForm":1,"symbolKey":"btcusdt"}}
+{"seq":3,"op":"fill","takerOrderNo":"b1","makerOrderNo":"s1","price":"100","qty":"1","takerRemaining":"0","makerRemaining":"0","takerStatus":1,"makerStatus":1}
+{"seq":4,"op":"depth","symbol":"btcusdt","bids":[],"asks":[]}
