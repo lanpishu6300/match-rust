@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use match_bench::workload;
 use match_core::Engine;
-use match_core_hp::HpEngine;
+use match_core_hp::{HpEngine, HpWorker};
 
 const N: usize = 50_000;
 
@@ -49,6 +49,20 @@ fn bench_mixed(c: &mut Criterion) {
     c.bench_function("hp_mixed", |b| b.iter(|| run_hp(&hp_cmds)));
 }
 
+fn run_hp_spsc(cmds: &[match_core_hp::HpCommand]) {
+    // Ring large enough that same-thread submit never blocks.
+    let mut w = HpWorker::new(cmds.len().next_power_of_two().max(1024));
+    for c in cmds {
+        w.try_submit(*c).expect("ring sized for full workload");
+    }
+    w.run_once();
+}
+
+fn bench_hp_cross_full_spsc(c: &mut Criterion) {
+    let (_, hp_cmds) = workload::cross_full(N);
+    c.bench_function("hp_cross_full_spsc", |b| b.iter(|| run_hp_spsc(&hp_cmds)));
+}
+
 fn configure() -> Criterion {
     Criterion::default().sample_size(20)
 }
@@ -61,6 +75,7 @@ criterion_group! {
         bench_cross_full,
         bench_partial_walk,
         bench_cancel_hot,
-        bench_mixed
+        bench_mixed,
+        bench_hp_cross_full_spsc
 }
 criterion_main!(benches);
