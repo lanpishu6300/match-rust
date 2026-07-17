@@ -4,6 +4,7 @@ members = [
   "crates/match-protocol",
   "crates/match-core",
   "crates/match-core-hp",
+  "crates/match-bench",
   "crates/match-replay",
   "crates/match-contract",
   "crates/match-spot",

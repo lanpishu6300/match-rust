@@ -1,0 +1,18 @@
+[package]
+name = "match-bench"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+match-core = { path = "../match-core" }
+match-core-hp = { path = "../match-core-hp" }
+match-protocol = { path = "../match-protocol" }
+bigdecimal = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "engine_cmp"
+harness = false

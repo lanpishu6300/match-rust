@@ -1,0 +1,42 @@
+# match-core vs match-core-hp bench results
+
+First published numbers from `match-bench` (`engine_cmp`).
+
+## Environment
+
+| Item | Value |
+|------|-------|
+| Date | 2026-07-18 |
+| Host | macOS 14.4.1, Apple M1 Pro (arm64) |
+| Rust | rustc 1.97.1 (8bab26f4f 2026-07-14) |
+| Command | `cargo bench -p match-bench --bench engine_cmp -- --sample-size 20` |
+| Workload size | 50_000 commands per scenario |
+| Criterion | 0.5, sample size 20 |
+
+## Notes
+
+- Core path clones `BbOrder` each `on_order` (Java-shaped DTO cost is intentional).
+- HP path uses `Copy` `HpCommand` (no clone noise favoring HP unfairly beyond real API shape).
+- HP semantics are clean limit/market/cancel — not Java-equivalent.
+- Ratio = `core_median_time / hp_median_time` (higher ⇒ HP faster).
+
+## Results (median wall time per full workload)
+
+| Scenario | core | hp | Ratio (core/hp) |
+|----------|------|-----|-----------------|
+| `rest_only` | 39.229 ms | 904.95 µs | **~43.3×** |
+| `cross_full` | 60.028 ms | 899.35 µs | **~66.7×** |
+| `partial_walk` | 104.56 ms | 1.6452 ms | **~63.6×** |
+| `cancel_hot` | 524.18 ms | 9.9348 ms | **~52.8×** |
+| `mixed` | 49.617 ms | 628.37 µs | **~79.0×** |
+
+## Acceptance
+
+Spec target: ≥5× on `cross_full` and `partial_walk`.
+
+| Scenario | Target | Observed | Status |
+|----------|--------|----------|--------|
+| `cross_full` | ≥5× | ~66.7× | PASS |
+| `partial_walk` | ≥5× | ~63.6× | PASS |
+
+No extra optimization pass required for this run.
