@@ -52,6 +52,16 @@ impl Book {
         id
     }
 
+    /// Place an already-stored order onto its price level (taker remainder).
+    pub fn rest(&mut self, id: u64) {
+        let (side, tick, lot) = {
+            let order = self.store.get(id).expect("rest: order must exist in store");
+            (order.side, order.price_tick, order.open_lot)
+        };
+        debug_assert!(lot > 0);
+        self.level_mut(side, tick).push(id, lot);
+    }
+
     pub fn cancel(&mut self, id: u64) -> bool {
         let Some(order) = self.store.remove(id) else {
             return false;
