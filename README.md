@@ -10,6 +10,7 @@ Rust port of the  contract matching engine (`java-contract-match`), structured a
 | [HP dual-track design](../docs/superpowers/specs/2026-07-18-match-core-hp-design.md) | `match-core-hp` fixed-point / price-level book / bench |
 | [Implementation plan](../docs/superpowers/plans/2026-07-17-rust-match-engines.md) | Equivalence-track task breakdown |
 | [HP implementation plan](../docs/superpowers/plans/2026-07-18-match-core-hp.md) | High-performance dual-track tasks (H0–H3) |
+| [OSS best practices](docs/best-practices.md) | Disruptor / Aeron / Seastar → code mapping |
 | [L3 shadow validation](docs/l3-shadow.md) | Pre-prod shadow consume / offline replay |
 | [Symbol cutover runbook](docs/cutover-runbook.md) | Per-symbol grey cut and rollback |
 | [RMQ spike notes](docs/rmq-spike.md) | NameServer client compatibility status |
@@ -32,6 +33,8 @@ cargo test --workspace
 | Performance | `match-core-hp` | No |
 
 Protocol/`BbOrder` conversion lives only in `match_core_hp::adapter` (boundary). Hot path stays in `i64` tick/lot space.
+
+Industry practices (LMAX Disruptor, Aeron, Seastar, exchange-style books) are documented in [`docs/best-practices.md`](docs/best-practices.md) and wired into `SpscRing` (cache-line padded cursors, batch `pop_n`), `WaitStrategy`, and optional `--features affinity` CPU pinning.
 
 ### Bench vs match-core
 

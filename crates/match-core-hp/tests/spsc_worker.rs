@@ -1,4 +1,4 @@
-use match_core_hp::{HpCommand, HpEvent, HpWorker, Side};
+use match_core_hp::{HpCommand, HpEvent, HpWorker, Side, WaitStrategy};
 
 #[test]
 fn submit_then_run_once_produces_fills() {
@@ -66,4 +66,27 @@ fn engine_reuses_event_buffer_across_calls() {
     // Spot-check last events via a direct engine call (buffer cleared each time).
     let ev = w.engine_mut().on_order(HpCommand::Cancel { id: 999_999 });
     assert!(ev.iter().all(|e| !matches!(e, HpEvent::Fill { .. })));
+}
+
+#[test]
+fn poll_yield_drains_queued_then_idles() {
+    let mut w = HpWorker::new(32);
+    w.try_submit(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    })
+    .unwrap();
+    w.try_submit(HpCommand::Limit {
+        side: Side::Buy,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 2,
+        client_id: 2,
+    })
+    .unwrap();
+    let fills = w.poll(WaitStrategy::Yield, Some(8));
+    assert_eq!(fills, 1);
 }

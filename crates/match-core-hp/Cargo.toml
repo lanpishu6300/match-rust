@@ -3,7 +3,13 @@ name = "match-core-hp"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+## Optional CPU pinning via `core_affinity` (see `affinity` module / docs/best-practices.md).
+affinity = ["dep:core_affinity"]
+
 [dependencies]
 thiserror = { workspace = true }
 match-protocol = { path = "../match-protocol" }
 bigdecimal = { workspace = true }
+core_affinity = { version = "0.8", optional = true }

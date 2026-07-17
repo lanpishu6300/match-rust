@@ -1,12 +1,21 @@
 //! Single-producer single-consumer command ring (power-of-two capacity).
+//!
+//! Practices (see `docs/best-practices.md`):
+//! - LMAX Disruptor: preallocated slots, single producer / single consumer
+//! - Aeron: isolate head/tail on separate cache lines (avoid false sharing)
+//! - Disruptor batching: [`pop_n`] uses one Acquire + one Release for a batch
 
 use crate::types::HpCommand;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Ring full — caller should back off / retry.
+/// Ring full — caller should back off / retry (explicit backpressure).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Busy;
+
+/// Pad to a typical x86/ARM cache line so producer/consumer cursors do not share a line.
+#[repr(align(64))]
+struct CachePadded<T>(T);
 
 /// Fixed-capacity SPSC queue of [`HpCommand`].
 ///
@@ -15,10 +24,10 @@ pub struct Busy;
 pub struct SpscRing {
     buf: Box<[UnsafeCell<HpCommand>]>,
     mask: usize,
-    /// Next write index (producer).
-    tail: AtomicUsize,
-    /// Next read index (consumer).
-    head: AtomicUsize,
+    /// Next write index (producer-only updates).
+    tail: CachePadded<AtomicUsize>,
+    /// Next read index (consumer-only updates).
+    head: CachePadded<AtomicUsize>,
 }
 
 unsafe impl Send for SpscRing {}
@@ -35,8 +44,8 @@ impl SpscRing {
         Self {
             buf: buf.into_boxed_slice(),
             mask: cap - 1,
-            tail: AtomicUsize::new(0),
-            head: AtomicUsize::new(0),
+            tail: CachePadded(AtomicUsize::new(0)),
+            head: CachePadded(AtomicUsize::new(0)),
         }
     }
 
@@ -44,44 +53,87 @@ impl SpscRing {
         self.mask + 1
     }
 
+    /// Approximate depth (relaxed); for metrics only.
+    pub fn len_approx(&self) -> usize {
+        let tail = self.tail.0.load(Ordering::Relaxed);
+        let head = self.head.0.load(Ordering::Relaxed);
+        tail.wrapping_sub(head)
+    }
+
     /// Producer: enqueue one command. Returns [`Busy`] if full.
     pub fn try_push(&self, cmd: HpCommand) -> Result<(), Busy> {
-        let tail = self.tail.load(Ordering::Relaxed);
-        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.0.load(Ordering::Relaxed);
+        let head = self.head.0.load(Ordering::Acquire);
         if tail.wrapping_sub(head) > self.mask {
             return Err(Busy);
         }
         unsafe {
             *self.buf[tail & self.mask].get() = cmd;
         }
-        self.tail.store(tail.wrapping_add(1), Ordering::Release);
+        self.tail.0.store(tail.wrapping_add(1), Ordering::Release);
         Ok(())
     }
 
     /// Consumer: dequeue one command if available.
     pub fn try_pop(&self) -> Option<HpCommand> {
-        let head = self.head.load(Ordering::Relaxed);
-        let tail = self.tail.load(Ordering::Acquire);
+        let head = self.head.0.load(Ordering::Relaxed);
+        let tail = self.tail.0.load(Ordering::Acquire);
         if head == tail {
             return None;
         }
         let cmd = unsafe { *self.buf[head & self.mask].get() };
-        self.head.store(head.wrapping_add(1), Ordering::Release);
+        self.head.0.store(head.wrapping_add(1), Ordering::Release);
         Some(cmd)
     }
 
-    /// Consumer: pop up to `max` commands into `out`. Returns count popped.
+    /// Consumer: pop up to `max` commands into `out` in one batch (fewer barriers).
     pub fn pop_n(&self, out: &mut Vec<HpCommand>, max: usize) -> usize {
-        let mut n = 0;
-        while n < max {
-            match self.try_pop() {
-                Some(c) => {
-                    out.push(c);
-                    n += 1;
-                }
-                None => break,
+        if max == 0 {
+            return 0;
+        }
+        let head = self.head.0.load(Ordering::Relaxed);
+        let tail = self.tail.0.load(Ordering::Acquire);
+        let available = tail.wrapping_sub(head);
+        let n = available.min(max);
+        if n == 0 {
+            return 0;
+        }
+        out.reserve(n);
+        for i in 0..n {
+            let idx = (head.wrapping_add(i)) & self.mask;
+            let cmd = unsafe { *self.buf[idx].get() };
+            out.push(cmd);
+        }
+        self.head.0.store(head.wrapping_add(n), Ordering::Release);
+        n
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Side;
+
+    #[test]
+    fn batch_pop_preserves_order() {
+        let r = SpscRing::with_capacity(8);
+        for i in 0..5u64 {
+            r.try_push(HpCommand::Limit {
+                side: Side::Buy,
+                price_tick: i as i64,
+                qty_lot: 1,
+                ts: i,
+                client_id: i,
+            })
+            .unwrap();
+        }
+        let mut out = Vec::new();
+        assert_eq!(r.pop_n(&mut out, 10), 5);
+        for (i, c) in out.iter().enumerate() {
+            match c {
+                HpCommand::Limit { client_id, .. } => assert_eq!(*client_id, i as u64),
+                _ => panic!("expected limit"),
             }
         }
-        n
     }
 }
