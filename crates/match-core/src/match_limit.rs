@@ -2,8 +2,7 @@
 
 use bigdecimal::{BigDecimal, Zero};
 use match_protocol::{
-    ORDER_FORM_FOK, ORDER_FORM_IOC, ORDER_FORM_POST_ONLY, ORDER_STATUS_REVOKE,
-    ORDER_STATUS_SUCCESS, ORDER_STATUS_SUCCESS_PART,
+    ORDER_FORM_FOK, ORDER_STATUS_REVOKE, ORDER_STATUS_SUCCESS, ORDER_STATUS_SUCCESS_PART,
 };
 
 use crate::book::OrderBook;
@@ -11,15 +10,15 @@ use crate::event::MatchEvent;
 use crate::order::{BbOrder, Side};
 use crate::price_utils::get_average_price;
 
-fn remaining(order: &BbOrder) -> BigDecimal {
+pub(crate) fn remaining(order: &BbOrder) -> BigDecimal {
     &order.trust_number - &order.consumer_all_number
 }
 
-fn dec_str(d: &BigDecimal) -> String {
+pub(crate) fn dec_str(d: &BigDecimal) -> String {
     d.normalized().to_string()
 }
 
-fn fill_event(
+pub(crate) fn fill_event(
     symbol: &str,
     taker: &BbOrder,
     maker_order_no: &str,
@@ -41,15 +40,6 @@ fn fill_event(
         taker_status: taker_status as u8,
         maker_status: maker_status as u8,
     }
-}
-
-/// True for PostOnly / IOC / FOK — deferred until advanced handlers (Task 7).
-/// Market (`ORDER_FORM_MARKET_PRICE`) is handled in `match_market`.
-pub fn is_deferred_order_form(order_form: i8) -> bool {
-    matches!(
-        order_form,
-        ORDER_FORM_POST_ONLY | ORDER_FORM_IOC | ORDER_FORM_FOK
-    )
 }
 
 pub fn revoke_order(book: &mut OrderBook, order: &BbOrder) -> Option<MatchEvent> {
@@ -375,7 +365,7 @@ fn equals_sell(
     )
 }
 
-/// Rest-only path for market/advanced forms (Tasks 6/7).
+/// Rest-only path for unrecognized sides / forms.
 pub fn rest_only(book: &mut OrderBook, order: BbOrder) {
     book.insert(order);
 }

@@ -89,34 +89,49 @@ impl BbOrder {
         create_time: i64,
         qty: &str,
     ) -> Self {
-        let qty = BigDecimal::from_str(qty).expect("valid test qty");
-        Self(ProtocolBbOrder {
-            user_id: 1,
-            uid: 1,
-            r#type: 1,
-            order_type: side.order_type(),
-            market_id: 1,
-            coin_id: 1,
-            symbol_key: "btcusdt".to_string(),
-            coin_market: "BTC/USDT".to_string(),
-            trust_order_no: trust_order_no.to_string(),
-            order_form: 2,
-            gear: Some(1),
-            close_position: 1,
-            start_deposit: BigDecimal::zero(),
-            target_rate: BigDecimal::zero(),
-            position_type: 0,
-            lever_times: 1,
-            order_status: 0,
-            consumer_all_number: BigDecimal::zero(),
-            current_deal_number: BigDecimal::zero(),
-            trust_number: qty.clone(),
-            trust_price: BigDecimal::zero(),
-            remaining_number: qty,
-            create_time,
-            face_value: None,
-            average_price: BigDecimal::zero(),
-        })
+        let mut o = Self::test_limit(side, BigDecimal::zero(), trust_order_no, create_time, qty);
+        o.order_form = 2;
+        o.gear = Some(1);
+        o
+    }
+
+    /// PostOnly order (`order_form = 3`).
+    pub fn test_post_only(
+        side: Side,
+        price: BigDecimal,
+        trust_order_no: &str,
+        create_time: i64,
+        qty: &str,
+    ) -> Self {
+        let mut o = Self::test_limit(side, price, trust_order_no, create_time, qty);
+        o.order_form = 3;
+        o
+    }
+
+    /// IOC order (`order_form = 4`).
+    pub fn test_ioc(
+        side: Side,
+        price: BigDecimal,
+        trust_order_no: &str,
+        create_time: i64,
+        qty: &str,
+    ) -> Self {
+        let mut o = Self::test_limit(side, price, trust_order_no, create_time, qty);
+        o.order_form = 4;
+        o
+    }
+
+    /// FOK order (`order_form = 5`).
+    pub fn test_fok(
+        side: Side,
+        price: BigDecimal,
+        trust_order_no: &str,
+        create_time: i64,
+        qty: &str,
+    ) -> Self {
+        let mut o = Self::test_limit(side, price, trust_order_no, create_time, qty);
+        o.order_form = 5;
+        o
     }
 }
 

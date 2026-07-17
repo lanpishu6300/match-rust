@@ -3,6 +3,7 @@
 mod book;
 mod engine;
 mod event;
+mod handlers;
 mod id;
 mod match_limit;
 mod match_market;
