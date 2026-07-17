@@ -22,6 +22,26 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo test --workspace
 ```
 
+## match-core-hp (dual-track, experimental)
+
+`match-core-hp` is a **high-performance experimental** matching core (fixed-point ticks/lots, price-level book, optional SPSC worker). It is **not** Java-equivalent and is **not** used by production `match-contract`.
+
+| Track | Crate | Production default |
+|-------|-------|--------------------|
+| Equivalence | `match-core` | Yes (`match-contract`) |
+| Performance | `match-core-hp` | No |
+
+Protocol/`BbOrder` conversion lives only in `match_core_hp::adapter` (boundary). Hot path stays in `i64` tick/lot space.
+
+### Bench vs match-core
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo bench -p match-bench --bench engine_cmp -- --sample-size 20
+```
+
+Published numbers: [`docs/bench-results.md`](docs/bench-results.md) (target ≥5× on `cross_full` / `partial_walk`).
+
 ## match-contract
 
 Binary shell: config → bootstrap (RPC restore, Redis wipe/link, per-symbol workers) → inbound/outbound messaging.
