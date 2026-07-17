@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct MqOrder {
     pub user_id: Option<i32>,
     pub uid: Option<i32>,
+    #[serde(default)]
     pub c_type: i8,
     pub deal_type: Option<i8>,
     pub r#type: Option<i8>,

@@ -12,3 +12,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 bigdecimal = { workspace = true }
+serde_json = { workspace = true }

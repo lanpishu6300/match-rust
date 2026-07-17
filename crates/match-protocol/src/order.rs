@@ -15,7 +15,7 @@ pub struct BbOrder {
     pub coin_market: String,
     pub trust_order_no: String,
     pub order_form: i8,
-    pub gear: i32,
+    pub gear: Option<i32>,
     pub close_position: i8,
     pub start_deposit: BigDecimal,
     pub target_rate: BigDecimal,

@@ -5,10 +5,15 @@ use crate::mq_order::MqOrder;
 use crate::order::BbOrder;
 
 fn parse_decimal(value: &str) -> Option<BigDecimal> {
-    BigDecimal::from_str(value.trim()).ok()
+    // Match Java `new BigDecimal(string)` — no trim; leading/trailing whitespace fails.
+    BigDecimal::from_str(value).ok()
 }
 
 /// Converts a validated `MqOrder` into a `BbOrder`, mirroring Java `BBConstants.typeConvert`.
+///
+/// Returns `None` when required fields are missing or when trust number/price are non-positive.
+/// Does not invent defaults for `uid` / `lever_times` (Java builder takes primitives and would NPE
+/// on null). `gear` is preserved as `Option` so limit orders may omit it.
 pub fn type_convert(mq_order: &MqOrder) -> Option<BbOrder> {
     let symbol_key = mq_order
         .symbol_key
@@ -25,7 +30,7 @@ pub fn type_convert(mq_order: &MqOrder) -> Option<BbOrder> {
 
     Some(BbOrder {
         user_id: mq_order.user_id?,
-        uid: mq_order.uid.unwrap_or(0),
+        uid: mq_order.uid?,
         r#type: mq_order.r#type?,
         order_type: mq_order.order_type?,
         market_id: mq_order.market_id?,
@@ -34,12 +39,12 @@ pub fn type_convert(mq_order: &MqOrder) -> Option<BbOrder> {
         coin_market: mq_order.coin_market.clone()?,
         trust_order_no: mq_order.trust_order_no.clone()?,
         order_form: mq_order.order_form?,
-        gear: mq_order.gear.unwrap_or(0),
+        gear: mq_order.gear,
         close_position: mq_order.close_position?,
         start_deposit: parse_decimal(mq_order.start_deposit.as_ref()?)?,
         target_rate: parse_decimal(mq_order.taker_rate.as_ref()?)?,
         position_type: mq_order.position_type?,
-        lever_times: mq_order.lever_times.unwrap_or(0),
+        lever_times: mq_order.lever_times?,
         order_status: mq_order.order_status?,
         consumer_all_number: BigDecimal::zero(),
         current_deal_number: BigDecimal::zero(),

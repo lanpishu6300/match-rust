@@ -56,3 +56,37 @@ fn type_convert_normalizes_symbol_and_remaining() {
 fn encode_symbol_key_ascii_passthrough() {
     assert_eq!(encode_symbol_key("btcusdt"), "btcusdt");
 }
+
+#[test]
+fn mq_order_c_type_defaults_when_missing() {
+    let json = r#"{
+        "userId": 1,
+        "uid": 100,
+        "type": 1,
+        "orderType": 1,
+        "marketId": 1,
+        "coinId": 2,
+        "symbolKey": "btcusdt",
+        "coinMarket": "BTC/USDT",
+        "trustOrderNo": "10001",
+        "closePosition": 1,
+        "startDeposit": "10",
+        "positionType": 0,
+        "takerRate": "0.0005",
+        "orderStatus": 0,
+        "orderForm": 1,
+        "leverTimes": 10,
+        "trustNumber": "1",
+        "trustPrice": "50000",
+        "createTime": 1700000000000
+    }"#;
+    let o: MqOrder = serde_json::from_str(json).expect("deserialize");
+    assert_eq!(o.c_type, 0);
+}
+
+#[test]
+fn type_convert_rejects_whitespace_padded_decimal() {
+    let mut o = valid_mq();
+    o.trust_number = Some(" 1 ".into());
+    assert!(type_convert(&o).is_none());
+}
