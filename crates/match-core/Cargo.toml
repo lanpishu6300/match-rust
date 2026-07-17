@@ -1,0 +1,10 @@
+[package]
+name = "match-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+match-protocol = { path = "../match-protocol" }
+bigdecimal = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

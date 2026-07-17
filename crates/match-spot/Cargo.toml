@@ -1,0 +1,4 @@
+[package]
+name = "match-spot"
+version.workspace = true
+edition.workspace = true

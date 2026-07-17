@@ -1,0 +1,10 @@
+[package]
+name = "match-replay"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+match-core = { path = "../match-core" }
+match-protocol = { path = "../match-protocol" }
+serde_json = { workspace = true }
+clap = { workspace = true }

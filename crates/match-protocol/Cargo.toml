@@ -1,0 +1,10 @@
+[package]
+name = "match-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bigdecimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
