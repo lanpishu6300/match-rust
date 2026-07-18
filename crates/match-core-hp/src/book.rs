@@ -1,7 +1,9 @@
 use crate::order_store::OrderStore;
 use crate::types::{HpOrder, Side};
-use std::collections::{BTreeMap, VecDeque};
 use std::cmp::Reverse;
+use std::collections::{BTreeMap, VecDeque};
+
+const LEVEL_POOL_CAP: usize = 256;
 
 #[derive(Debug, Default)]
 struct Level {
@@ -10,12 +12,27 @@ struct Level {
     ids: VecDeque<u64>,
 }
 
+impl Level {
+    fn push(&mut self, id: u64, lot: i64) {
+        self.ids.push_back(id);
+        self.total_lot += lot;
+    }
+
+    fn clear(&mut self) {
+        self.total_lot = 0;
+        self.ids.clear();
+    }
+}
+
 /// Price-level order book with FIFO within each tick.
 #[derive(Debug)]
 pub struct Book {
     bids: BTreeMap<Reverse<i64>, Level>,
     asks: BTreeMap<i64, Level>,
     store: OrderStore,
+    best_bid_tick: Option<i64>,
+    best_ask_tick: Option<i64>,
+    level_pool: Vec<Level>,
 }
 
 impl Book {
@@ -24,6 +41,9 @@ impl Book {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             store: OrderStore::new(),
+            best_bid_tick: None,
+            best_ask_tick: None,
+            level_pool: Vec::new(),
         }
     }
 
@@ -32,6 +52,9 @@ impl Book {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             store: OrderStore::with_capacity(order_cap),
+            best_bid_tick: None,
+            best_ask_tick: None,
+            level_pool: Vec::new(),
         }
     }
 
@@ -49,6 +72,7 @@ impl Book {
         let lot = order.open_lot;
         let id = self.store.insert(order);
         self.level_mut(side, tick).push(id, lot);
+        self.note_insert(side, tick);
         id
     }
 
@@ -60,6 +84,7 @@ impl Book {
         };
         debug_assert!(lot > 0);
         self.level_mut(side, tick).push(id, lot);
+        self.note_insert(side, tick);
     }
 
     pub fn cancel(&mut self, id: u64) -> bool {
@@ -104,11 +129,16 @@ impl Book {
     }
 
     pub fn best_ask(&self) -> Option<i64> {
-        self.asks.keys().next().copied()
+        debug_assert_eq!(self.best_ask_tick, self.asks.keys().next().copied());
+        self.best_ask_tick
     }
 
     pub fn best_bid(&self) -> Option<i64> {
-        self.bids.keys().next().map(|Reverse(t)| *t)
+        debug_assert_eq!(
+            self.best_bid_tick,
+            self.bids.keys().next().map(|Reverse(t)| *t)
+        );
+        self.best_bid_tick
     }
 
     pub fn front_id(&self, side: Side, tick: i64) -> Option<u64> {
@@ -141,8 +171,61 @@ impl Book {
 
     fn level_mut(&mut self, side: Side, tick: i64) -> &mut Level {
         match side {
-            Side::Buy => self.bids.entry(Reverse(tick)).or_default(),
-            Side::Sell => self.asks.entry(tick).or_default(),
+            Side::Buy => {
+                if self.bids.contains_key(&Reverse(tick)) {
+                    return self.bids.get_mut(&Reverse(tick)).expect("checked");
+                }
+                let lvl = self.take_level();
+                self.bids.entry(Reverse(tick)).or_insert(lvl)
+            }
+            Side::Sell => {
+                if self.asks.contains_key(&tick) {
+                    return self.asks.get_mut(&tick).expect("checked");
+                }
+                let lvl = self.take_level();
+                self.asks.entry(tick).or_insert(lvl)
+            }
+        }
+    }
+
+    fn take_level(&mut self) -> Level {
+        self.level_pool.pop().unwrap_or_default()
+    }
+
+    fn recycle_level(&mut self, mut level: Level) {
+        level.clear();
+        if self.level_pool.len() < LEVEL_POOL_CAP {
+            self.level_pool.push(level);
+        }
+    }
+
+    fn note_insert(&mut self, side: Side, tick: i64) {
+        match side {
+            Side::Buy => {
+                if self.best_bid_tick.map(|b| tick > b).unwrap_or(true) {
+                    self.best_bid_tick = Some(tick);
+                }
+            }
+            Side::Sell => {
+                if self.best_ask_tick.map(|a| tick < a).unwrap_or(true) {
+                    self.best_ask_tick = Some(tick);
+                }
+            }
+        }
+    }
+
+    fn note_remove_level(&mut self, side: Side, tick: i64) {
+        match side {
+            Side::Buy => {
+                if self.best_bid_tick == Some(tick) {
+                    self.best_bid_tick = self.bids.keys().next().map(|Reverse(t)| *t);
+                }
+            }
+            Side::Sell => {
+                if self.best_ask_tick == Some(tick) {
+                    self.best_ask_tick = self.asks.keys().next().copied();
+                }
+            }
         }
     }
 
@@ -167,21 +250,14 @@ impl Book {
     }
 
     fn remove_empty_level(&mut self, side: Side, tick: i64) {
-        match side {
-            Side::Buy => {
-                self.bids.remove(&Reverse(tick));
-            }
-            Side::Sell => {
-                self.asks.remove(&tick);
-            }
+        let removed = match side {
+            Side::Buy => self.bids.remove(&Reverse(tick)),
+            Side::Sell => self.asks.remove(&tick),
+        };
+        if let Some(level) = removed {
+            self.recycle_level(level);
         }
-    }
-}
-
-impl Level {
-    fn push(&mut self, id: u64, lot: i64) {
-        self.ids.push_back(id);
-        self.total_lot += lot;
+        self.note_remove_level(side, tick);
     }
 }
 
