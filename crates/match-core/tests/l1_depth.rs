@@ -61,7 +61,9 @@ fn depth_after_rather_than_buy_partial_reflects_survivor_remaining() {
     assert_eq!(levels.len(), 1);
     assert_eq!(levels[0].0, dec("100"));
     assert_eq!(levels[0].1, dec("2"));
-    assert!(eng.depth_levels("btcusdt", Side::Sell, NO_DEAL_NUMBER as usize).is_empty());
+    assert!(eng
+        .depth_levels("btcusdt", Side::Sell, NO_DEAL_NUMBER as usize)
+        .is_empty());
 }
 
 #[test]
@@ -73,5 +75,7 @@ fn depth_after_rather_than_sell_partial_reflects_survivor_remaining() {
     assert_eq!(levels.len(), 1);
     assert_eq!(levels[0].0, dec("100"));
     assert_eq!(levels[0].1, dec("2"));
-    assert!(eng.depth_levels("btcusdt", Side::Buy, NO_DEAL_NUMBER as usize).is_empty());
+    assert!(eng
+        .depth_levels("btcusdt", Side::Buy, NO_DEAL_NUMBER as usize)
+        .is_empty());
 }

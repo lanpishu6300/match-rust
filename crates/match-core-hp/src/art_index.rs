@@ -88,7 +88,10 @@ impl ArtMap {
     fn insert(&mut self, tick: i64, level: Level) {
         let bytes = key_bytes(tick);
         if self.root.is_none() {
-            self.root = Some(Box::new(Node::Leaf { key: tick, value: level }));
+            self.root = Some(Box::new(Node::Leaf {
+                key: tick,
+                value: level,
+            }));
             return;
         }
         Self::insert_at(self.root.as_mut().unwrap(), &bytes, 0, tick, level);
@@ -131,11 +134,7 @@ impl ArtMap {
                     })
                 });
                 // If child is a leaf for a different key that shares this prefix, split below.
-                if let Node::Leaf {
-                    key: ek,
-                    value: ev,
-                } = child.as_mut()
-                {
+                if let Node::Leaf { key: ek, value: ev } = child.as_mut() {
                     if *ek != tick {
                         let old_key = *ek;
                         let old_level = std::mem::take(ev);

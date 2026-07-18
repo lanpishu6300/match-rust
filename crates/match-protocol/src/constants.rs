@@ -93,8 +93,7 @@ pub const MQ_PRODUCER_MATCH_MARKET_PUSH_NO_DEAL_TOPIC: &str =
 pub const MQ_PRODUCER_MATCH_MARKET_PUSH_DEEPS_TOPIC: &str =
     "usdt_contract_match_market_push_deeps_";
 /// Robot topic.
-pub const MQ_PRODUCER_MATCH_MARKET_PUSH_ROBOT_TOPIC: &str =
-    "usdt_contract_match_market_push_robot";
+pub const MQ_PRODUCER_MATCH_MARKET_PUSH_ROBOT_TOPIC: &str = "usdt_contract_match_market_push_robot";
 /// Redis key for failed MQ sends.
 pub const REDIS_SEND_MQ_ERROR_DATA_QUEUE: &str = "poc_redis_send_mq_error_data_queue";
 /// Redis linked-list key.

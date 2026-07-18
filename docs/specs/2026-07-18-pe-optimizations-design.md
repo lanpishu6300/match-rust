@@ -3,7 +3,8 @@
 **日期：** 2026-07-18  
 **状态：** Approved / Implemented (A–C skeleton) — 2026-07-18  
 **前置：** [2026-07-18-match-core-hp-design.md](./2026-07-18-match-core-hp-design.md)  
-**参考代码：** `crypto-exchange`（perpetual_exchange）、`.`  
+**参考代码：** external `crypto-exchange` (perpetual_exchange R&D); this repository (`match-rust`)  
+
 **决策摘要：** 顺序 **A → B → C**；Phase A 选 **A2**；落地方式选 **方案 1**（`LevelIndex` trait + feature `art`）
 
 ---

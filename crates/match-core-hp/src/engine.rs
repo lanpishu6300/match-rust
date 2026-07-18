@@ -162,8 +162,18 @@ impl HpEngine {
             let Some(maker_id) = self.book.front_id(Side::Sell, ask_tick) else {
                 break;
             };
-            let maker_open = self.book.store().get(maker_id).map(|o| o.open_lot).unwrap_or(0);
-            let taker_open = self.book.store().get(taker_id).map(|o| o.open_lot).unwrap_or(0);
+            let maker_open = self
+                .book
+                .store()
+                .get(maker_id)
+                .map(|o| o.open_lot)
+                .unwrap_or(0);
+            let taker_open = self
+                .book
+                .store()
+                .get(taker_id)
+                .map(|o| o.open_lot)
+                .unwrap_or(0);
             if maker_open <= 0 || taker_open <= 0 {
                 break;
             }
@@ -215,8 +225,18 @@ impl HpEngine {
             let Some(maker_id) = self.book.front_id(Side::Buy, bid_tick) else {
                 break;
             };
-            let maker_open = self.book.store().get(maker_id).map(|o| o.open_lot).unwrap_or(0);
-            let taker_open = self.book.store().get(taker_id).map(|o| o.open_lot).unwrap_or(0);
+            let maker_open = self
+                .book
+                .store()
+                .get(maker_id)
+                .map(|o| o.open_lot)
+                .unwrap_or(0);
+            let taker_open = self
+                .book
+                .store()
+                .get(taker_id)
+                .map(|o| o.open_lot)
+                .unwrap_or(0);
             if maker_open <= 0 || taker_open <= 0 {
                 break;
             }

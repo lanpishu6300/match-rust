@@ -39,10 +39,7 @@ fn price_time_priority_older_maker_first() {
     eng.on_order(BbOrder::test_limit(Side::Sell, dec("100"), "s_old", 1, "1"));
     eng.on_order(BbOrder::test_limit(Side::Sell, dec("100"), "s_new", 2, "1"));
     let events = eng.on_order(BbOrder::test_limit(Side::Buy, dec("100"), "b1", 3, "1"));
-    if let MatchEvent::Fill {
-        maker_order_no, ..
-    } = &events[0]
-    {
+    if let MatchEvent::Fill { maker_order_no, .. } = &events[0] {
         assert_eq!(maker_order_no, "s_old");
     } else {
         panic!("expected fill");

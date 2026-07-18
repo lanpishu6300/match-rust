@@ -8,8 +8,9 @@ use match_contract::redis_store::{link_list_key, RedisStore};
 
 fn test_config() -> RedisConfig {
     RedisConfig {
-        cluster_nodes: vec![std::env::var("MATCH_CONTRACT_REDIS")
-            .unwrap_or_else(|_| "127.0.0.1:6379".into())],
+        cluster_nodes: vec![
+            std::env::var("MATCH_CONTRACT_REDIS").unwrap_or_else(|_| "127.0.0.1:6379".into())
+        ],
         password: std::env::var("MATCH_CONTRACT_REDIS_PASSWORD").unwrap_or_default(),
     }
 }

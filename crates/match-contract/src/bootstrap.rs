@@ -84,10 +84,7 @@ pub async fn run(
             warn!("skipping market with empty coinMarket");
             continue;
         }
-        let origin = market
-            .origin_coin_market
-            .as_deref()
-            .unwrap_or(coin_market);
+        let origin = market.origin_coin_market.as_deref().unwrap_or(coin_market);
 
         redis.wipe_depth_keys(origin)?;
         redis.reset_link_key(&symbol_key, coin_market)?;
@@ -111,11 +108,7 @@ pub async fn run(
     let mut workers = Vec::new();
     for (symbol_key, rx) in pending {
         info!(symbol = %symbol_key, "symbol worker + queue ready");
-        workers.push(spawn_symbol_worker(
-            symbol_key,
-            rx,
-            Arc::clone(&outbound),
-        ));
+        workers.push(spawn_symbol_worker(symbol_key, rx, Arc::clone(&outbound)));
     }
 
     let order_client = OrderClient::new(&config.rpc.order_base_url);

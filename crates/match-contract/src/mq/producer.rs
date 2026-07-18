@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use super::traits::{OrderSink, SinkError};
 use super::topics::{
     push_deeps_topic, push_market_topic, push_no_deal_topic, push_order_topic, PUSH_ROBOT,
 };
+use super::traits::{OrderSink, SinkError};
 
 /// Thin facade that maps logical destinations to topic names.
 pub struct Producer {

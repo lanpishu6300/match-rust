@@ -39,10 +39,13 @@ pub fn spawn_server(port: u16, ready: Arc<AtomicBool>) -> tokio::task::JoinHandl
     tokio::spawn(async move {
         let app = Router::new()
             .route("/healthz", get(healthz))
-            .route("/readyz", get({
-                let ready = Arc::clone(&ready);
-                move || readyz(ready)
-            }))
+            .route(
+                "/readyz",
+                get({
+                    let ready = Arc::clone(&ready);
+                    move || readyz(ready)
+                }),
+            )
             .route("/metrics", get(metrics));
 
         let addr = SocketAddr::from(([0, 0, 0, 0], port));

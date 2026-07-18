@@ -10,7 +10,13 @@ fn dec(s: &str) -> BigDecimal {
 fn post_only_that_would_take_revokes_no_fill_not_resting() {
     let mut eng = Engine::new();
     eng.on_order(BbOrder::test_limit(Side::Sell, dec("100"), "s1", 1, "1"));
-    let events = eng.on_order(BbOrder::test_post_only(Side::Buy, dec("100"), "b_po", 2, "1"));
+    let events = eng.on_order(BbOrder::test_post_only(
+        Side::Buy,
+        dec("100"),
+        "b_po",
+        2,
+        "1",
+    ));
 
     let fills: Vec<_> = events
         .iter()
@@ -104,7 +110,9 @@ fn fok_success_full_fill_no_remainder() {
     }
 
     assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Revoke { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, MatchEvent::Revoke { .. })),
         "FOK success must not revoke"
     );
     assert!(eng.depth_levels("btcusdt", Side::Buy, 20).is_empty());

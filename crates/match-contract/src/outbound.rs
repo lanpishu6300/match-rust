@@ -64,11 +64,7 @@ pub struct Outbound {
 }
 
 impl Outbound {
-    pub fn new(
-        producer: Producer,
-        redis: Option<RedisStore>,
-        depth_push_interval_ms: u64,
-    ) -> Self {
+    pub fn new(producer: Producer, redis: Option<RedisStore>, depth_push_interval_ms: u64) -> Self {
         Self {
             producer,
             redis: redis.map(Mutex::new),

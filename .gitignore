@@ -1,1 +1,34 @@
 /target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local runtime / secrets
+logs/
+data/
+*.log
+*.wal
+.env
+.env.*
+!.env.example
+
+# Local config overrides (keep examples)
+crates/match-contract/config.local.yaml
+**/config.yaml
+!**/config.example.yaml
+
+# Bench / criterion output
+criterion/
+benchmark_output.txt
+
+# Temp
+tmp/
+temp/
+*.tmp

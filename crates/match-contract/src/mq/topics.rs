@@ -44,7 +44,10 @@ mod tests {
 
     #[test]
     fn topic_names_for_ascii_symbol() {
-        assert_eq!(pull_order_topic("btcusdt"), "usdt_contract_match_order_btcusdt");
+        assert_eq!(
+            pull_order_topic("btcusdt"),
+            "usdt_contract_match_order_btcusdt"
+        );
         assert_eq!(
             pull_order_group("btcusdt"),
             "usdt_contract_match_channel_one_groupbtcusdt"

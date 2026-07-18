@@ -54,7 +54,9 @@ pub fn from_bb_order(o: &BbOrder, scale: &SymbolScale) -> Result<HpCommand, Adap
             })
         }
         ORDER_FORM_MARKET_PRICE => {
-            let max_levels = o.gear.and_then(|g| if g > 0 { Some(g as u32) } else { None });
+            let max_levels = o
+                .gear
+                .and_then(|g| if g > 0 { Some(g as u32) } else { None });
             Ok(HpCommand::Market {
                 side,
                 qty_lot,

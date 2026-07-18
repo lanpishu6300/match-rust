@@ -108,8 +108,20 @@ fn market_respects_max_levels() {
         client_id: 4,
     });
     assert_eq!(ev.len(), 2);
-    assert!(matches!(ev[0], HpEvent::Fill { price_tick: 100, .. }));
-    assert!(matches!(ev[1], HpEvent::Fill { price_tick: 101, .. }));
+    assert!(matches!(
+        ev[0],
+        HpEvent::Fill {
+            price_tick: 100,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ev[1],
+        HpEvent::Fill {
+            price_tick: 101,
+            ..
+        }
+    ));
     assert_eq!(e.book.best_ask(), Some(102));
 }
 

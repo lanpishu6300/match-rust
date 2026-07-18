@@ -41,10 +41,7 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "op")]
 pub enum TraceLine {
     #[serde(rename = "input")]
-    Input {
-        seq: u64,
-        order: SimplifiedOrder,
-    },
+    Input { seq: u64, order: SimplifiedOrder },
     #[serde(rename = "fill")]
     Fill {
         seq: u64,
@@ -112,8 +109,8 @@ impl SimplifiedOrder {
     pub fn to_bb_order(&self) -> Result<BbOrder, String> {
         let side = Side::from_order_type(self.order_type)
             .ok_or_else(|| format!("invalid orderType {}", self.order_type))?;
-        let price = BigDecimal::from_str(&self.trust_price)
-            .map_err(|e| format!("trustPrice: {e}"))?;
+        let price =
+            BigDecimal::from_str(&self.trust_price).map_err(|e| format!("trustPrice: {e}"))?;
 
         let mut order = match self.order_form {
             2 => BbOrder::test_market(
@@ -323,8 +320,7 @@ pub fn collect_replay(ops: &[TraceLine]) -> Result<ReplayCollected, String> {
                     .to_bb_order()
                     .map_err(|e| format!("seq {seq} input: {e}"))?;
                 for ev in eng.on_order(bb) {
-                    out.actual_outcomes
-                        .push(OutcomeEvent::from_match_event(ev));
+                    out.actual_outcomes.push(OutcomeEvent::from_match_event(ev));
                 }
             }
             TraceLine::Fill { .. } | TraceLine::Revoke { .. } => {
@@ -384,8 +380,7 @@ pub fn replay_paths(input_path: &Path, expected_path: &Path) -> Result<ReplayCol
                 .to_bb_order()
                 .map_err(|e| format!("seq {seq} input: {e}"))?;
             for ev in eng.on_order(bb) {
-                out.actual_outcomes
-                    .push(OutcomeEvent::from_match_event(ev));
+                out.actual_outcomes.push(OutcomeEvent::from_match_event(ev));
             }
         }
     }

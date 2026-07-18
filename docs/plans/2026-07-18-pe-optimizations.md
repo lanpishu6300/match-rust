@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust workspace `match-rust`, `match-core-hp`, criterion/`fair_compare`, optional ART (self-contained), tracing/`Instant` spans.
 
-**Spec:** `docs/superpowers/specs/2026-07-18-pe-optimizations-design.md` (also `match-rust/docs/specs/`).
+**Spec:** `docs/specs/2026-07-18-pe-optimizations-design.md`.
 
 ---
 

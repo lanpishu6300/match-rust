@@ -1,0 +1,9 @@
+match-rust
+Copyright 2026 the match-rust authors
+
+This product includes software developed for high-performance
+cryptocurrency matching (spot/contract) with a Java-equivalent core
+track and an experimental high-performance track.
+
+Licensed under the Apache License, Version 2.0.
+See the LICENSE file for details.

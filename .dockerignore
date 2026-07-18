@@ -1,0 +1,12 @@
+target
+.git
+.github
+**/*.md
+!README.md
+Dockerfile
+.dockerignore
+criterion
+logs
+data
+*.wal
+.env*

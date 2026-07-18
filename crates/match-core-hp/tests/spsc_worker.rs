@@ -32,8 +32,8 @@ fn submit_then_run_once_produces_fills() {
 #[test]
 fn try_submit_busy_when_full() {
     let w = HpWorker::new(2); // rounds to 2
-    // Capacity 2: can push until (tail - head) > mask, i.e. 2 slots usable
-    // with our full check `tail - head > mask` ⇒ full when depth == cap.
+                              // Capacity 2: can push until (tail - head) > mask, i.e. 2 slots usable
+                              // with our full check `tail - head > mask` ⇒ full when depth == cap.
     w.try_submit(HpCommand::Cancel { id: 1 }).unwrap();
     w.try_submit(HpCommand::Cancel { id: 2 }).unwrap();
     assert!(w.try_submit(HpCommand::Cancel { id: 3 }).is_err());

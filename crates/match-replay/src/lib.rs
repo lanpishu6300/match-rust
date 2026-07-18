@@ -37,11 +37,7 @@ mod golden_tests {
     #[test]
     fn all_golden_ndjson_match() {
         let dir = golden_dir();
-        assert!(
-            dir.is_dir(),
-            "golden dir missing: {}",
-            dir.display()
-        );
+        assert!(dir.is_dir(), "golden dir missing: {}", dir.display());
         let mut files: Vec<_> = fs::read_dir(&dir)
             .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
             .filter_map(|e| e.ok())
@@ -49,22 +45,14 @@ mod golden_tests {
             .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("ndjson"))
             .collect();
         files.sort();
-        assert!(
-            !files.is_empty(),
-            "no *.ndjson under {}",
-            dir.display()
-        );
+        assert!(!files.is_empty(), "no *.ndjson under {}", dir.display());
 
         let mut failures = Vec::new();
         for path in &files {
             match assert_golden_matches(path) {
                 Ok(()) => {}
                 Err(diffs) => {
-                    failures.push(format!(
-                        "{}:\n  {}",
-                        path.display(),
-                        diffs.join("\n  ")
-                    ));
+                    failures.push(format!("{}:\n  {}", path.display(), diffs.join("\n  ")));
                 }
             }
         }

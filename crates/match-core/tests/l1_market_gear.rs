@@ -91,9 +91,7 @@ fn market_buy_empty_book_revokes() {
     let mut taker = BbOrder::test_market(Side::Buy, "b_empty", 1, "1");
     taker.gear = Some(5);
     let events = eng.on_order(taker);
-    assert!(events
-        .iter()
-        .all(|e| !matches!(e, MatchEvent::Fill { .. })));
+    assert!(events.iter().all(|e| !matches!(e, MatchEvent::Fill { .. })));
     assert!(events
         .iter()
         .any(|e| matches!(e, MatchEvent::Revoke { reason, .. } if reason == "market_empty")));

@@ -25,8 +25,8 @@
 
 use crate::config::RedisConfig;
 use match_protocol::{REDIS_LINK_LIST_KEY, REDIS_SEND_MQ_ERROR_DATA_QUEUE};
-use redis::{Client, Commands, Connection, RedisError};
 use redis::cluster::{ClusterClient, ClusterConnection};
+use redis::{Client, Commands, Connection, RedisError};
 use thiserror::Error;
 
 /// Java `RedisKeyPrefixEnum.MATCH_KEY`.
@@ -102,7 +102,11 @@ impl RedisStore {
     }
 
     /// Delete link key, then optionally set if absent — mirrors `InitLoadData` startup sequence.
-    pub fn reset_link_key(&mut self, symbol_key: &str, coin_market: &str) -> Result<(), RedisStoreError> {
+    pub fn reset_link_key(
+        &mut self,
+        symbol_key: &str,
+        coin_market: &str,
+    ) -> Result<(), RedisStoreError> {
         let key = link_list_key(symbol_key);
         self.del(&key)?;
         if !self.exists(&key)? {

@@ -12,7 +12,7 @@
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cd .
+# from repo root
 cargo run -p match-bench --release --bin fair_compare -- --n 50000
 # ART index path (same fill_rate expected):
 cargo test -p match-core-hp --features art --test art_parity

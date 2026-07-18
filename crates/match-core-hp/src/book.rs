@@ -3,10 +3,10 @@ use crate::level_index::LevelIndex;
 use crate::order_store::OrderStore;
 use crate::types::{HpOrder, Side};
 
-#[cfg(not(feature = "art"))]
-use crate::level_index::{BTreeAskIndex, BTreeBidIndex};
 #[cfg(feature = "art")]
 use crate::art_index::{ArtAskIndex, ArtBidIndex};
+#[cfg(not(feature = "art"))]
+use crate::level_index::{BTreeAskIndex, BTreeBidIndex};
 
 const LEVEL_POOL_CAP: usize = 256;
 

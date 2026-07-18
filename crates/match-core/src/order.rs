@@ -83,12 +83,7 @@ impl BbOrder {
     }
 
     /// Builds a minimal market order (`order_form = 2`) for tests. Default `gear = Some(1)`.
-    pub fn test_market(
-        side: Side,
-        trust_order_no: &str,
-        create_time: i64,
-        qty: &str,
-    ) -> Self {
+    pub fn test_market(side: Side, trust_order_no: &str, create_time: i64, qty: &str) -> Self {
         let mut o = Self::test_limit(side, BigDecimal::zero(), trust_order_no, create_time, qty);
         o.order_form = 2;
         o.gear = Some(1);

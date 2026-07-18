@@ -9,7 +9,10 @@ use clap::Parser;
 use match_replay::{assert_golden_matches, diff_replay, replay_paths};
 
 #[derive(Parser, Debug)]
-#[command(name = "match-replay", about = "Replay GoldenTrace NDJSON against match-core")]
+#[command(
+    name = "match-replay",
+    about = "Replay GoldenTrace NDJSON against match-core"
+)]
 struct Args {
     /// NDJSON golden file with `input` ops (and optionally expected fill/depth/revoke).
     #[arg(long)]

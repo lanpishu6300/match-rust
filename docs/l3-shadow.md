@@ -1,6 +1,6 @@
 # L3 shadow validation for match-contract
 
-L3 is the pre-production equivalence gate: run Rust against **real or recorded inbound traffic** without affecting downstream consumers. See design spec [§4.2 L3](../../../docs/superpowers/specs/2026-07-17-rust-match-engines-design.md#42-match-replay-三层).
+L3 is the pre-production equivalence gate: run Rust against **real or recorded inbound traffic** without affecting downstream consumers. See design spec [§4.2 L3](./specs/2026-07-17-rust-match-engines-design.md#42-match-replay-三层).
 
 L2 (`cargo test -p match-replay`) must be green before any L3 work.
 
@@ -90,5 +90,5 @@ Hybrid for symbols where live shadow diff tooling is immature:
 ## Related docs
 
 - [Grey cutover runbook](cutover-runbook.md)
-- [Design spec §4.2–4.3](../../../docs/superpowers/specs/2026-07-17-rust-match-engines-design.md)
-- [Implementation plan Task 14](../../../docs/superpowers/plans/2026-07-17-rust-match-engines.md)
+- [Design spec §4.2–4.3](./specs/2026-07-17-rust-match-engines-design.md)
+- [Implementation plan Task 14](./plans/2026-07-17-rust-match-engines.md)

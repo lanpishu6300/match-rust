@@ -8,7 +8,10 @@ use crate::trace::{DepthCheck, OutcomeEvent, ReplayCollected};
 
 /// Diff two decimal strings numerically (`"100"` == `"100.0"` == `"1E2"`).
 pub fn decimals_equal(a: &str, b: &str) -> bool {
-    match (BigDecimal::from_str(a.trim()), BigDecimal::from_str(b.trim())) {
+    match (
+        BigDecimal::from_str(a.trim()),
+        BigDecimal::from_str(b.trim()),
+    ) {
         (Ok(da), Ok(db)) => da == db,
         _ => a == b,
     }
@@ -18,9 +21,10 @@ fn levels_equal(expected: &[[String; 2]], actual: &[[String; 2]]) -> bool {
     if expected.len() != actual.len() {
         return false;
     }
-    expected.iter().zip(actual.iter()).all(|(e, a)| {
-        decimals_equal(&e[0], &a[0]) && decimals_equal(&e[1], &a[1])
-    })
+    expected
+        .iter()
+        .zip(actual.iter())
+        .all(|(e, a)| decimals_equal(&e[0], &a[0]) && decimals_equal(&e[1], &a[1]))
 }
 
 fn outcome_equal(expected: &OutcomeEvent, actual: &OutcomeEvent) -> Result<(), String> {

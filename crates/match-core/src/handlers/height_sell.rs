@@ -86,7 +86,12 @@ fn ioc_or_fok_reason(order_form: i8) -> &'static str {
     }
 }
 
-fn revoke_by_no(book: &mut OrderBook, order_no: &str, side: Side, reason: &str) -> Option<MatchEvent> {
+fn revoke_by_no(
+    book: &mut OrderBook,
+    order_no: &str,
+    side: Side,
+    reason: &str,
+) -> Option<MatchEvent> {
     let mut stub = BbOrder::test_limit(side, BigDecimal::from(0), order_no, 0, "0");
     stub.order_type = side.order_type();
     revoke_order_with_reason(book, &stub, reason)

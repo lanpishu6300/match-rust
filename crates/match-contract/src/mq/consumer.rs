@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::traits::{InboundHandler, MessageSource, SourceError, Subscription};
 use super::topics::{pull_order_group, pull_order_topic};
+use super::traits::{InboundHandler, MessageSource, SourceError, Subscription};
 use crate::inbound::InboundRouter;
 
 /// Build per-symbol pull subscriptions (topic + group), matching Java `InitLoadData`.

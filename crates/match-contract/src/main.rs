@@ -38,19 +38,15 @@ async fn main() {
 
     let bootstrap_ready = BootstrapReady::new();
     let _health_task = if config.health.enabled {
-        Some(spawn_server(
-            config.health.port,
-            bootstrap_ready.shared(),
-        ))
+        Some(spawn_server(config.health.port, bootstrap_ready.shared()))
     } else {
         None
     };
 
     let (sink, source) = build_transport(&config);
 
-    let local_symbols: Option<Vec<String>> = std::env::var("MATCH_CONTRACT_LOCAL_SYMBOLS")
-        .ok()
-        .map(|s| {
+    let local_symbols: Option<Vec<String>> =
+        std::env::var("MATCH_CONTRACT_LOCAL_SYMBOLS").ok().map(|s| {
             s.split(',')
                 .map(str::trim)
                 .filter(|x| !x.is_empty())
@@ -91,7 +87,9 @@ fn build_transport(config: &Config) -> (Arc<dyn OrderSink>, Arc<dyn MessageSourc
     match config.rocketmq.transport {
         MqTransport::Memory => {
             let sink: Arc<dyn OrderSink> = if let Some(dir) = &config.rocketmq.memory_dir {
-                Arc::new(MemoryOrderSink::with_out_dir(PathBuf::from(dir).join("out")))
+                Arc::new(MemoryOrderSink::with_out_dir(
+                    PathBuf::from(dir).join("out"),
+                ))
             } else {
                 Arc::new(MemoryOrderSink::new())
             };

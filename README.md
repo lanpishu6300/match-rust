@@ -1,103 +1,197 @@
 # match-rust
 
-Rust port of the  contract matching engine (`java-contract-match`), structured as a Cargo workspace with shared `match-core`, `match-protocol`, and `match-replay` crates.
+High-performance cryptocurrency **matching engines** in Rust for contract (and spot) paths — dual-track design with a Java-equivalent core and an experimental low-latency core.
 
-## Documentation
+Inspired in layout and packaging by [perpetual_exchange / crypto-exchange](https://github.com/lanpishu6300/matching-engine) (C++ R&D), while targeting **Topic/JSON-compatible** cutover against live Java services.
 
-| Doc | Description |
-|-----|-------------|
-| [Design spec](../docs/superpowers/specs/2026-07-17-rust-match-engines-design.md) | Architecture, protocol alignment, milestones |
-| [HP dual-track design](../docs/superpowers/specs/2026-07-18-match-core-hp-design.md) | `match-core-hp` fixed-point / price-level book / bench |
-| [Implementation plan](../docs/superpowers/plans/2026-07-17-rust-match-engines.md) | Equivalence-track task breakdown |
-| [HP implementation plan](../docs/superpowers/plans/2026-07-18-match-core-hp.md) | High-performance dual-track tasks (H0–H3) |
-| [OSS best practices](docs/best-practices.md) | Disruptor / Aeron / Seastar → code mapping |
-| [E2E latency budget](docs/e2e-budget.md) | Layered bottleneck budget (L1–L4) |
-| [Fair compare protocol](docs/fair-compare.md) | Non-zero fill-rate microbench vs core / C++ |
-| [PE optimizations design](docs/specs/2026-07-18-pe-optimizations-design.md) | A→B→C: cache/ART, hp-engine spans, match-wal |
-| [L3 shadow validation](docs/l3-shadow.md) | Pre-prod shadow consume / offline replay |
-| [Symbol cutover runbook](docs/cutover-runbook.md) | Per-symbol grey cut and rollback |
-| [RMQ spike notes](docs/rmq-spike.md) | NameServer client compatibility status |
-| [Java OTel metrics](../java-contract-match/docs/opentelemetry-metrics.md) | Metric names Rust counters align with |
+**License:** [Apache License 2.0](LICENSE)
 
-## Build / test
+---
+
+## Features
+
+### Equivalence track (`match-core`)
+- Price-time priority book aligned with `java-contract-match` observables
+- Limit / market / gear, PostOnly / IOC / FOK (including documented Java quirks where required)
+- Golden NDJSON replay via `match-replay`
+
+### Performance track (`match-core-hp`)
+- Fixed-point `price_tick` / `qty_lot`
+- Price-level book + FIFO, best-price cache, level pool
+- Optional ART-style radix index (`--features art`)
+- SPSC worker, cache-line padded ring, configurable wait strategy
+- Async WAL experiment (`match-wal`)
+
+### Process shell (`match-contract`)
+- Config → RPC restore → Redis → per-symbol workers
+- Memory (and future RocketMQ) transport adapters
+- `/healthz` `/readyz` `/metrics` (Prometheus / OTel-aligned names)
+- Optional `--features hp-engine` for hp workers + L2/L3/L1 span counters
+
+---
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ match-contract / match-spot (shells)                        │
+│  MQ/RPC/Redis/health  →  per-symbol worker                  │
+└───────────────┬─────────────────────────────┬───────────────┘
+                │ default                     │ feature hp-engine
+                ▼                             ▼
+         match-core                    match-core-hp
+         (Java-shaped)                 (tick/lot + LevelIndex)
+                │                             │
+                └──────────┬──────────────────┘
+                           ▼
+                    match-protocol (DTO)
+                           │
+              match-replay / match-bench / match-wal
+```
+
+| Crate | Role | Production default |
+|-------|------|--------------------|
+| `match-protocol` | Shared order DTOs / checks | — |
+| `match-core` | Equivalence engine | **Yes** |
+| `match-core-hp` | HP experimental engine | No |
+| `match-contract` | Contract process shell | uses `match-core` |
+| `match-spot` | Spot shell (stub) | — |
+| `match-replay` | Golden replay CLI | — |
+| `match-bench` | Criterion + `fair_compare` | — |
+| `match-wal` | Async batched WAL | experimental |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Rust **1.97.1+** (see `rust-toolchain.toml`)
+- macOS / Linux
+
+### Build & test
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"
+git clone <your-fork-or-remote>/match-rust.git
+cd match-rust
 cargo test --workspace
+
+# or
+make test
+make ci          # fmt + clippy + tests + art + fair_compare
 ```
 
-## match-core-hp (dual-track, experimental)
-
-`match-core-hp` is a **high-performance experimental** matching core (fixed-point ticks/lots, price-level book, optional SPSC worker). It is **not** Java-equivalent and is **not** used by production `match-contract`.
-
-| Track | Crate | Production default |
-|-------|-------|--------------------|
-| Equivalence | `match-core` | Yes (`match-contract`) |
-| Performance | `match-core-hp` | No |
-
-Protocol/`BbOrder` conversion lives only in `match_core_hp::adapter` (boundary). Hot path stays in `i64` tick/lot space.
-
-Industry practices (LMAX Disruptor, Aeron, Seastar, exchange-style books) are documented in [`docs/best-practices.md`](docs/best-practices.md) and wired into `SpscRing` (cache-line padded cursors, batch `pop_n`), `WaitStrategy`, and optional `--features affinity` CPU pinning.
-
-### Bench vs match-core
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-cargo bench -p match-bench --bench engine_cmp -- --sample-size 20
-```
-
-Published numbers: [`docs/bench-results.md`](docs/bench-results.md) (target ≥5× on `cross_full` / `partial_walk`).
-
-### Fair compare (mandatory fill_rate > 0)
-
-```bash
-cargo run -p match-bench --release --bin fair_compare -- --n 50000
-```
-
-Prints CSV (`engine,scenario,n_orders,n_fills,fill_rate,...`). Exits non-zero if fill rate is near zero (rejects “fake peaks”). Protocol: [`docs/fair-compare.md`](docs/fair-compare.md). End-to-end layers: [`docs/e2e-budget.md`](docs/e2e-budget.md).
-
-Optional ART index (same fills as BTree):
-
-```bash
-cargo test -p match-core-hp --features art --test art_parity
-```
-
-Experimental contract path + spans: `cargo run -p match-contract --features hp-engine`.  
-Async WAL microbench: `cargo run -p match-wal --release --bin wal_bench -- 100000`.
-
-## match-contract
-
-Binary shell: config → bootstrap (RPC restore, Redis wipe/link, per-symbol workers) → inbound/outbound messaging.
-
-### RocketMQ status
-
-**Production RocketMQ is not wired yet.** NameServer spike against `192.168.0.241:9876` timed out; see [`docs/rmq-spike.md`](docs/rmq-spike.md). Runtime uses `OrderSink` / `MessageSource` with an in-memory (optional file-channel) adapter (`rocketmq.transport: memory`).
-
-### Local run (memory transport)
+### Local contract shell (memory transport)
 
 ```bash
 export MATCH_CONTRACT_CONFIG=crates/match-contract/config.example.yaml
-# Skip RPC/Redis; start workers for listed symbols only:
 export MATCH_CONTRACT_LOCAL_SYMBOLS=btcusdt
 cargo run -p match-contract
+# make run-local
 ```
 
-Publish inbound JSON arrays via the `MemoryMessageSource` API in tests, or drop `*.json` files under `{memory_dir}/in/` when configured.
-
-### Health and metrics
-
-When `health.enabled: true` (default), the process serves:
+Health (default port `31015`):
 
 | Path | Meaning |
 |------|---------|
 | `GET /healthz` | Process up |
-| `GET /readyz` | Bootstrap finished (RPC restore, workers, consumers) |
-| `GET /metrics` | Prometheus text counters aligned with Java `match.*` OTel names |
+| `GET /readyz` | Bootstrap finished |
+| `GET /metrics` | Prometheus counters |
 
-Default port `31015` mirrors Java `java-contract-match` `server.port`.
+---
 
-### Test-env smoke (when RPC/Redis/RMQ reachable)
+## Performance
 
-1. Point `config` at test RPC / Redis / RMQ; set `transport: memory` until RMQ adapter lands (or `rocketmq` after spike passes).
-2. Prefer `match.symbols_whitelist: ["one-low-traffic-symbol"]`.
-3. Confirm restore count logs; place + cancel should produce `usdt_contract_match_order_push_order_{encoded}` payloads (memory sink or live MQ).
+Fair microbench (**fill_rate must be > 0** — rejects zero-fill “fake peaks”):
+
+```bash
+make fair
+# cargo run -p match-bench --release --bin fair_compare -- --n 50000
+```
+
+Criterion suite:
+
+```bash
+make bench
+```
+
+ART parity:
+
+```bash
+make test-art
+```
+
+WAL throughput:
+
+```bash
+make wal-bench
+```
+
+Published numbers and methodology: [`docs/bench-results.md`](docs/bench-results.md), [`docs/fair-compare.md`](docs/fair-compare.md), [`docs/e2e-budget.md`](docs/e2e-budget.md).
+
+> End-to-end latency is usually dominated by MQ/JSON (L4), not the L1 microkernel. See the e2e budget doc before chasing nanoseconds.
+
+---
+
+## Documentation
+
+Full index: **[`docs/README.md`](docs/README.md)**
+
+| Doc | Description |
+|-----|-------------|
+| [Architecture notes](docs/ARCHITECTURE.md) | Crate map & dual-track rules |
+| [Equivalence design](docs/specs/2026-07-17-rust-match-engines-design.md) | Protocol / cutover |
+| [HP design](docs/specs/2026-07-18-match-core-hp-design.md) | Fixed-point / price-level |
+| [PE optimizations](docs/specs/2026-07-18-pe-optimizations-design.md) | Cache / ART / wal A→B→C |
+| [OSS best practices](docs/best-practices.md) | Disruptor / Aeron / Seastar mapping |
+| [Cutover runbook](docs/cutover-runbook.md) | Per-symbol grey release |
+| [RMQ spike](docs/rmq-spike.md) | RocketMQ status |
+
+---
+
+## Configuration
+
+See [`crates/match-contract/config.example.yaml`](crates/match-contract/config.example.yaml).
+
+RocketMQ production adapter is **not** wired yet (`transport: memory`). Details: [`docs/rmq-spike.md`](docs/rmq-spike.md).
+
+---
+
+## Docker
+
+```bash
+docker build -t match-rust:local .
+docker run --rm -p 31015:31015 \
+  -e MATCH_CONTRACT_LOCAL_SYMBOLS=btcusdt \
+  match-rust:local
+```
+
+---
+
+## Contributing & release
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — branch, test, PR expectations  
+- [`CHANGELOG.md`](CHANGELOG.md) — version history  
+- CI: `.github/workflows/ci.yml` on push/PR  
+
+Suggested release tags: `v0.1.0`, `v0.2.0`, …
+
+---
+
+## Status
+
+| Area | Status |
+|------|--------|
+| `match-core` equivalence | In progress / golden replay |
+| `match-core-hp` | Usable experimental |
+| `match-contract` shell | Memory transport; RMQ TBD |
+| Spot shell | Stub |
+| Production default engine | **`match-core` only** |
+
+---
+
+## Acknowledgments
+
+- Java baseline engines: `java-contract-match`, `java-spot-match`
+- Layout/performance ideas from perpetual_exchange (`crypto-exchange`) ART / persistence research
+- Industry patterns: LMAX Disruptor, Aeron, exchange price-level books

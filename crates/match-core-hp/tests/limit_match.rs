@@ -57,7 +57,12 @@ fn price_time_older_maker_first() {
         client_id: 3,
     });
     match ev[0] {
-        HpEvent::Fill { maker_id, qty_lot, price_tick, .. } => {
+        HpEvent::Fill {
+            maker_id,
+            qty_lot,
+            price_tick,
+            ..
+        } => {
             assert_eq!(maker_id, maker_older);
             assert_eq!(qty_lot, 1);
             assert_eq!(price_tick, 100);

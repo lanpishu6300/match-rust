@@ -281,9 +281,7 @@ pub(crate) fn rather_than_sell(book: &mut OrderBook) -> RatherThanSellResult {
             ORDER_STATUS_SUCCESS,
         ))
     } else if last_sell < last_buy {
-        RatherThanSellResult::Fill(less_than_sell(
-            book, buy, sell, last_buy, last_sell,
-        ))
+        RatherThanSellResult::Fill(less_than_sell(book, buy, sell, last_buy, last_sell))
     } else {
         RatherThanSellResult::Fill(equals_sell(buy, sell, last_buy, last_sell))
     }

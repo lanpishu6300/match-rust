@@ -1,6 +1,6 @@
 # match-contract symbol grey cutover runbook
 
-Per-symbol cutover from Java `java-contract-match` to Rust `match-contract`. Aligns with design spec [§4.3](../../../docs/superpowers/specs/2026-07-17-rust-match-engines-design.md#43-灰度切换).
+Per-symbol cutover from Java `java-contract-match` to Rust `match-contract`. Aligns with design spec [§4.3](./specs/2026-07-17-rust-match-engines-design.md#43-灰度切换).
 
 **Hard constraint:** For a given symbol, only **one active consumer** may read `usdt_contract_match_order_{symbol}` on group `usdt_contract_match_channel_one_group` at any time. Dual consumption splits the order book.
 
@@ -108,7 +108,7 @@ Watch for regressions vs Java baseline:
 
 ## Related docs
 
-- [Rust match engines design spec](../../../docs/superpowers/specs/2026-07-17-rust-match-engines-design.md)
-- [Implementation plan §4.3](../../../docs/superpowers/plans/2026-07-17-rust-match-engines.md)
+- [Rust match engines design spec](./specs/2026-07-17-rust-match-engines-design.md)
+- [Implementation plan §4.3](./plans/2026-07-17-rust-match-engines.md)
 - [L3 shadow modes](l3-shadow.md)
 - [Java OTel metrics](../../java-contract-match/docs/opentelemetry-metrics.md)
