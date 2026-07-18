@@ -69,11 +69,14 @@ make cov
 
 | 文档 | 说明 |
 |------|------|
-| [Wiki 首页（中文）](docs/wiki/zh/Home.md) | 入门、架构、FAQ、路线图 |
-| [Wiki Home (EN)](docs/wiki/en/Home.md) | Getting started, architecture, FAQ |
-| [架构说明](docs/ARCHITECTURE.md) | Crate 边界与双轨规则 |
-| [覆盖率策略](docs/COVERAGE.md) | 100% branch 门禁范围 |
-| [完整索引](docs/README.md) | specs / plans / 运维 |
+| [Wiki 首页（中文）](docs/wiki/zh/Home.md) · [EN](docs/wiki/en/Home.md) | 入门、架构、FAQ、路线图 |
+| [完整索引（中文）](docs/README.zh-CN.md) · [EN](docs/README.md) | specs / plans / 运维 |
+| [架构说明](docs/ARCHITECTURE.zh-CN.md) · [EN](docs/ARCHITECTURE.md) | Crate 边界与双轨规则 |
+| [覆盖率策略](docs/COVERAGE.zh-CN.md) · [EN](docs/COVERAGE.md) | 100% branch 门禁范围 |
+| [等价设计](docs/specs/2026-07-17-rust-match-engines-design.zh-CN.md) · [EN](docs/specs/2026-07-17-rust-match-engines-design.md) | 协议 / 切流 |
+| [HP 设计](docs/specs/2026-07-18-match-core-hp-design.zh-CN.md) · [EN](docs/specs/2026-07-18-match-core-hp-design.md) | 定点 / 价位簿 |
+| [PE 优化](docs/specs/2026-07-18-pe-optimizations-design.zh-CN.md) · [EN](docs/specs/2026-07-18-pe-optimizations-design.md) | 缓存 / ART / wal |
+| [切流手册](docs/cutover-runbook.zh-CN.md) · [EN](docs/cutover-runbook.md) | 按 symbol 灰度 |
 
 ---
 
@@ -91,10 +94,11 @@ make cov
 
 ## 贡献与安全
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) · [中文贡献指南](CONTRIBUTING.zh-CN.md)
-- [SECURITY.md](SECURITY.md) — 漏洞报告
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [SUPPORT.md](SUPPORT.md)
+- [贡献指南（中文）](CONTRIBUTING.zh-CN.md) · [EN](CONTRIBUTING.md)
+- [安全策略（中文）](SECURITY.zh-CN.md) · [EN](SECURITY.md)
+- [行为准则（中文）](CODE_OF_CONDUCT.zh-CN.md) · [EN](CODE_OF_CONDUCT.md)
+- [支持（中文）](SUPPORT.zh-CN.md) · [EN](SUPPORT.md)
+- [变更日志（中文）](CHANGELOG.zh-CN.md) · [EN](CHANGELOG.md)
 
 ## 致谢
 

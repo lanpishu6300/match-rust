@@ -1,5 +1,7 @@
 # match-core vs match-core-hp bench results
 
+**中文：** [bench-results.zh-CN.md](./bench-results.zh-CN.md)
+
 First published numbers from `match-bench` (`engine_cmp`).
 
 ## Environment

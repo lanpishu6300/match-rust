@@ -1,5 +1,7 @@
 # Changelog
 
+**中文：** [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)
+
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -10,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Bilingual Wiki (`docs/wiki/en`, `docs/wiki/zh`) and `README.zh-CN.md`
-- `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CONTRIBUTING.zh-CN.md`
+- Full bilingual docs: every `docs/*.md` / specs / plans / community file has a `*.zh-CN.md` pair
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CONTRIBUTING.zh-CN.md` (+ zh-CN siblings)
 - GitHub Issue templates (bug / feature) and contact links
 - Apache-2.0 licensing (`LICENSE`, `NOTICE`)
 - GitHub CI workflow, `Makefile`, coverage gate, self-contained `docs/`

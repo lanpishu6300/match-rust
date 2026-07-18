@@ -129,7 +129,7 @@ WAL throughput:
 make wal-bench
 ```
 
-Published numbers and methodology: [`docs/bench-results.md`](docs/bench-results.md), [`docs/fair-compare.md`](docs/fair-compare.md), [`docs/e2e-budget.md`](docs/e2e-budget.md).
+Published numbers and methodology: [`bench-results`](docs/bench-results.md) ([中文](docs/bench-results.zh-CN.md)), [`fair-compare`](docs/fair-compare.md) ([中文](docs/fair-compare.zh-CN.md)), [`e2e-budget`](docs/e2e-budget.md) ([中文](docs/e2e-budget.zh-CN.md)).
 
 > End-to-end latency is usually dominated by MQ/JSON (L4), not the L1 microkernel. See the e2e budget doc before chasing nanoseconds.
 
@@ -140,15 +140,15 @@ Published numbers and methodology: [`docs/bench-results.md`](docs/bench-results.
 | Doc | Description |
 |-----|-------------|
 | [Wiki Home (EN)](docs/wiki/en/Home.md) / [Wiki 首页（中文）](docs/wiki/zh/Home.md) | Getting started, FAQ, roadmap |
-| [Full docs index](docs/README.md) | Specs, plans, ops |
-| [Architecture notes](docs/ARCHITECTURE.md) | Crate map & dual-track rules |
-| [Equivalence design](docs/specs/2026-07-17-rust-match-engines-design.md) | Protocol / cutover |
-| [HP design](docs/specs/2026-07-18-match-core-hp-design.md) | Fixed-point / price-level |
-| [PE optimizations](docs/specs/2026-07-18-pe-optimizations-design.md) | Cache / ART / wal A→B→C |
-| [Coverage policy](docs/COVERAGE.md) | 100% branch gate (protocol/core/hp) |
-| [OSS best practices](docs/best-practices.md) | Disruptor / Aeron / Seastar mapping |
-| [Cutover runbook](docs/cutover-runbook.md) | Per-symbol grey release |
-| [RMQ spike](docs/rmq-spike.md) | RocketMQ status |
+| [Full docs index](docs/README.md) · [中文](docs/README.zh-CN.md) | Specs, plans, ops |
+| [Architecture notes](docs/ARCHITECTURE.md) · [中文](docs/ARCHITECTURE.zh-CN.md) | Crate map & dual-track rules |
+| [Equivalence design](docs/specs/2026-07-17-rust-match-engines-design.md) · [中文](docs/specs/2026-07-17-rust-match-engines-design.zh-CN.md) | Protocol / cutover |
+| [HP design](docs/specs/2026-07-18-match-core-hp-design.md) · [中文](docs/specs/2026-07-18-match-core-hp-design.zh-CN.md) | Fixed-point / price-level |
+| [PE optimizations](docs/specs/2026-07-18-pe-optimizations-design.md) · [中文](docs/specs/2026-07-18-pe-optimizations-design.zh-CN.md) | Cache / ART / wal A→B→C |
+| [Coverage policy](docs/COVERAGE.md) · [中文](docs/COVERAGE.zh-CN.md) | 100% branch gate (protocol/core/hp) |
+| [OSS best practices](docs/best-practices.md) · [中文](docs/best-practices.zh-CN.md) | Disruptor / Aeron / Seastar mapping |
+| [Cutover runbook](docs/cutover-runbook.md) · [中文](docs/cutover-runbook.zh-CN.md) | Per-symbol grey release |
+| [RMQ spike](docs/rmq-spike.md) · [中文](docs/rmq-spike.zh-CN.md) | RocketMQ status |
 
 ---
 
@@ -174,8 +174,8 @@ docker run --rm -p 31015:31015 \
 ## Contributing & release
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md)  
-- [`SECURITY.md`](SECURITY.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · [`SUPPORT.md`](SUPPORT.md)  
-- [`CHANGELOG.md`](CHANGELOG.md) — version history  
+- [`SECURITY.md`](SECURITY.md) · [`SECURITY.zh-CN.md`](SECURITY.zh-CN.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · [`CODE_OF_CONDUCT.zh-CN.md`](CODE_OF_CONDUCT.zh-CN.md) · [`SUPPORT.md`](SUPPORT.md) · [`SUPPORT.zh-CN.md`](SUPPORT.zh-CN.md)  
+- [`CHANGELOG.md`](CHANGELOG.md) · [`CHANGELOG.zh-CN.md`](CHANGELOG.zh-CN.md) — version history  
 - CI: `.github/workflows/ci.yml` · coverage gate: `make cov`  
 - Issue templates under `.github/ISSUE_TEMPLATE/`  
 

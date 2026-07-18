@@ -1,5 +1,7 @@
 # Rust Contract Match Engine Implementation Plan
 
+**中文：** [2026-07-17-rust-match-engines.zh-CN.md](./2026-07-17-rust-match-engines.zh-CN.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a Rust process that can replace Java `java-contract-match` with observable-result equivalence (fills, remainders, revoke paths, depth levels), verified by golden replay, then grey-cut by symbol.

@@ -1,12 +1,12 @@
-name: Bug report
-description: Report a defect in match-rust
+name: Bug report / 缺陷报告
+description: Report a defect in match-rust / 报告 match-rust 缺陷
 title: "[bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. For **security** issues use [SECURITY.md](../SECURITY.md), not this form.
+        Thanks for the report. For **security** issues use [SECURITY.md](../SECURITY.md) / [中文](../SECURITY.zh-CN.md), not this form.
         中文说明可写在同一 Issue 中。
   - type: textarea
     id: summary

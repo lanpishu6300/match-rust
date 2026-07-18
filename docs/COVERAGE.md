@@ -1,5 +1,7 @@
 # Branch coverage policy
 
+**中文：** [COVERAGE.zh-CN.md](./COVERAGE.zh-CN.md)
+
 ## Scope (hard gate: 100% branches)
 
 | Crate | Gate |

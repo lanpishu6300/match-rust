@@ -1,5 +1,7 @@
 # L3 shadow validation for match-contract
 
+**中文：** [l3-shadow.zh-CN.md](./l3-shadow.zh-CN.md)
+
 L3 is the pre-production equivalence gate: run Rust against **real or recorded inbound traffic** without affecting downstream consumers. See design spec [§4.2 L3](./specs/2026-07-17-rust-match-engines-design.md#42-match-replay-三层).
 
 L2 (`cargo test -p match-replay`) must be green before any L3 work.

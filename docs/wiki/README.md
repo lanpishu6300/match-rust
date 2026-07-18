@@ -1,5 +1,7 @@
 # In-repo Wiki (bilingual)
 
+**中文：** [README.zh-CN.md](./README.zh-CN.md)
+
 Versioned wiki pages (GitHub Wiki alternative that stays in git).
 
 | Language | Home |
@@ -12,10 +14,10 @@ Versioned wiki pages (GitHub Wiki alternative that stays in git).
 Maintainers can sync these files to the GitHub Wiki tab:
 
 ```bash
-# example: clone wiki and copy
 git clone https://github.com/lanpishu6300/match-rust.wiki.git
-cp docs/wiki/en/*.md match-rust.wiki/
-# rename Home.md → Home.md etc., commit & push
+# copy flat EN pages + Zh-* ZH pages + _Sidebar.md, then commit & push
 ```
 
 Prefer keeping **this directory** as the source of truth so PRs can review doc changes with code.
+
+Other project docs (specs, runbooks, community files) use the `Foo.md` / `Foo.zh-CN.md` pair under `docs/` and the repo root — see [../README.md](../README.md).

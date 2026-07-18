@@ -1,6 +1,6 @@
 # Security Policy
 
-**中文摘要：** 请通过下方私密渠道报告安全问题，勿在公开 Issue 中披露未修复漏洞。
+**中文：** [SECURITY.zh-CN.md](SECURITY.zh-CN.md)
 
 ## Supported versions
 

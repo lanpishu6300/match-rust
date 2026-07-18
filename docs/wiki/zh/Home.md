@@ -17,7 +17,8 @@
 
 ## 快捷链接
 
-- [贡献指南](../../../CONTRIBUTING.zh-CN.md)
-- [安全策略](../../../SECURITY.md)
-- [覆盖率门禁](../../COVERAGE.md)
+- [贡献指南](../../../CONTRIBUTING.zh-CN.md) · [EN](../../../CONTRIBUTING.md)
+- [安全策略](../../../SECURITY.zh-CN.md) · [EN](../../../SECURITY.md)
+- [覆盖率门禁](../../COVERAGE.zh-CN.md) · [EN](../../COVERAGE.md)
+- [文档索引](../../README.zh-CN.md) · [EN](../../README.md)
 - [设计规格](../../specs/)

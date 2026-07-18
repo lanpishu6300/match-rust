@@ -17,7 +17,8 @@ Welcome. This in-repo wiki mirrors what many projects put on GitHub Wiki, and st
 
 ## Quick links
 
-- [Contributing](../../../CONTRIBUTING.md)
-- [Security policy](../../../SECURITY.md)
-- [Coverage gate](../../COVERAGE.md)
+- [Contributing](../../../CONTRIBUTING.md) · [中文](../../../CONTRIBUTING.zh-CN.md)
+- [Security policy](../../../SECURITY.md) · [中文](../../../SECURITY.zh-CN.md)
+- [Coverage gate](../../COVERAGE.md) · [中文](../../COVERAGE.zh-CN.md)
+- [Docs index](../../README.md) · [中文](../../README.zh-CN.md)
 - [Design specs](../../specs/)

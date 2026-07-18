@@ -1,63 +1,65 @@
-# 端到端延迟预算与瓶颈分解
+# End-to-end latency budget and bottleneck breakdown
 
-目的：把「撮核很快」和「用户感知延迟」分开，避免只优化已不是瓶颈的 `on_order`。
+**中文：** [e2e-budget.zh-CN.md](./e2e-budget.zh-CN.md)
 
-## 1. 分层模型
+Goal: separate “matching kernel is fast” from “user-perceived latency” so we do not over-optimize `on_order` when it is no longer the bottleneck.
+
+## 1. Layered model
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ L5  客户端 / API / 网关                                      │
+│ L5  Client / API / gateway                                  │
 ├─────────────────────────────────────────────────────────────┤
-│ L4  RocketMQ 入站（网络 + Broker + 反序列化 JSON）            │  ← 现网主路径
+│ L4  RocketMQ inbound (network + broker + JSON deserialize)  │  ← production main path
 ├─────────────────────────────────────────────────────────────┤
-│ L3  Gateway：校验 / 转换 BbOrder→HpCommand / 入队             │  ← 可选拆分
+│ L3  Gateway: validate / BbOrder→HpCommand / enqueue         │  ← optional split
 ├─────────────────────────────────────────────────────────────┤
-│ L2  进程内队列（tokio mpsc 或 SpscRing）                      │
+│ L2  In-process queue (tokio mpsc or SpscRing)               │
 ├─────────────────────────────────────────────────────────────┤
-│ L1  撮核 on_order（match-core 或 match-core-hp）             │  ← 已有微基准
+│ L1  Match kernel on_order (match-core or match-core-hp)     │  ← microbenches exist
 ├─────────────────────────────────────────────────────────────┤
-│ L2' 出站队列 + 序列化                                         │
+│ L2' Outbound queue + serialize                              │
 ├─────────────────────────────────────────────────────────────┤
-│ L4' RocketMQ 出站（push_order / depth）                       │
+│ L4' RocketMQ outbound (push_order / depth)                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-| 层 | 典型量级（经验级，需本机实测） | 本仓库状态 |
-|----|------------------------------|------------|
-| L1 hp 微核 | 十～百 ns/单（合成负载） | ✅ `match-bench` / `fair_compare` |
-| L1 core（BigDecimal） | µs 级 | ✅ vs hp 对比 |
-| L2 进程内队列 | 百 ns～数 µs | ✅ SPSC；contract 仍用 tokio |
-| L3 校验+转换 | µs 级 | adapter + `match.span.l3_adapt_ns_total`（`hp-engine`） |
-| L4 MQ+JSON | 常为 **百 µs～ms** | ⚠️ RMQ 未接通（见 `rmq-spike.md`） |
+| Layer | Typical order of magnitude (empirical; measure locally) | Status here |
+|-------|----------------------------------------------------------|-------------|
+| L1 hp microkernel | tens–hundreds ns/order (synthetic) | ✅ `match-bench` / `fair_compare` |
+| L1 core (BigDecimal) | µs | ✅ vs hp |
+| L2 in-process queue | hundreds ns–few µs | ✅ SPSC; contract still tokio |
+| L3 validate+adapt | µs | adapter + `match.span.l3_adapt_ns_total` (`hp-engine`) |
+| L4 MQ+JSON | often **hundreds µs–ms** | ⚠️ RMQ not wired (`rmq-spike.md`) |
 
-**推论：** 在 L4 未优化前，把 L1 从 20ns 抠到 10ns，端到端几乎无感。下一刀应打在 **测量 L4/L3** 或 **拆 Gateway**。
+**Implication:** Before L4 is optimized, shaving L1 from 20ns to 10ns barely moves e2e. Next cut should **measure L4/L3** or **split the gateway**.
 
-## 2. 预算表示例（填写实测后）
+## 2. Example budget table (fill after measurement)
 
-场景：单 symbol，限价吃单，本地/测试环境。单位：µs，p99。
+Scenario: single symbol, aggressive limit, local/test. Units: µs, p99.
 
-| 段 | 预算（例） | 实测 | 占比 | 动作 |
-|----|------------|------|------|------|
-| L4 入站 | 200 | TBD | | 批处理、免 JSON、或旁路 |
-| L3 转换 | 5 | TBD | | 边界定点化 |
-| L2 入队 | 2 | TBD | | SPSC + 绑核 |
-| L1 撮合 | 1 | TBD | | hp |
-| L2' 出站缓冲 | 2 | TBD | | 批量 drain |
-| L4' 出站 | 200 | TBD | | 深度节流已有；成交可合并发送 |
-| **合计** | **~410** | | | |
+| Segment | Budget (example) | Measured | Share | Action |
+|---------|------------------|----------|-------|--------|
+| L4 inbound | 200 | TBD | | batch, skip JSON, or bypass |
+| L3 adapt | 5 | TBD | | fixed-point at boundary |
+| L2 enqueue | 2 | TBD | | SPSC + pin cores |
+| L1 match | 1 | TBD | | hp |
+| L2' out buffer | 2 | TBD | | batch drain |
+| L4' outbound | 200 | TBD | | depth throttle exists; coalesce fills |
+| **Total** | **~410** | | | |
 
-填写方法：在各边界打 `Instant`（或 tracing span），同一订单贯穿 ID。
+How: stamp `Instant` (or tracing spans) at each boundary with a shared order id.
 
-## 3. 分解检查清单
+## 3. Decomposition checklist
 
-1. [ ] 纯 L1：`cargo run -p match-bench --bin fair_compare -- --n 50000`  
-2. [ ] L1+L2：同一负载经 `HpWorker`（已有 `hp_cross_full_spsc` criterion）  
-3. [ ] L3+L1：JSON/`BbOrder` → adapter → hp（待加 span）  
-4. [ ] L4 全链路：RMQ 接通后用影子组录一单的 p99  
+1. [ ] Pure L1: `cargo run -p match-bench --bin fair_compare -- --n 50000`
+2. [ ] L1+L2: same load via `HpWorker` (`hp_cross_full_spsc` criterion)
+3. [ ] L3+L1: JSON/`BbOrder` → adapter → hp (spans)
+4. [ ] Full L4: after RMQ lands, record p99 on a shadow symbol
 
-## 4. 与 fair compare 的关系
+## 4. Relation to fair compare
 
-- **本文件**：回答「慢在哪一层」。  
-- **`docs/fair-compare.md` + `fair_compare` 二进制**：回答「在同一撮核负载下，hp 与 core（及外部 C++ 微核）是否公平可比」。  
+- **This doc:** answers “which layer is slow?”
+- **`docs/fair-compare.md` + `fair_compare` binary:** answers “under the same kernel load, is hp vs core (and external C++) fairly comparable?”
 
-先做 1→2，再谈 Aeron/SIMD。
+Do 1→2 before chasing Aeron/SIMD.

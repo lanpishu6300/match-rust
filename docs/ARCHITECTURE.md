@@ -1,5 +1,7 @@
 # Architecture notes
 
+**中文：** [ARCHITECTURE.zh-CN.md](./ARCHITECTURE.zh-CN.md)
+
 ## Dual-track rule
 
 1. **Production default** for `match-contract` is always `match-core` (Java-observable equivalence).

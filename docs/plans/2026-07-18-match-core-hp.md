@@ -1,5 +1,7 @@
 # match-core-hp Implementation Plan
 
+**中文：** [2026-07-18-match-core-hp.zh-CN.md](./2026-07-18-match-core-hp.zh-CN.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a dual-track high-performance matching core (`match-core-hp`) with fixed-point price-level books and a `match-bench` crate that proves ≥5× throughput vs `match-core` on hot scenarios, without changing production defaults.

@@ -1,91 +1,93 @@
-# 开源低延迟最佳实践 → match-rust 映射
+# Open-source low-latency practices → match-rust map
 
-本文总结交易所/消息/存储领域出名开源（及经典）项目的设计理念，并标明在本仓库中的落地位置。  
-**生产默认仍是等价轨 `match-core`；性能实践集中在 `match-core-hp`。**
+**中文：** [best-practices.zh-CN.md](./best-practices.zh-CN.md)
 
----
-
-## 1. 实践总表
-
-| 理念 | 代表项目 | 本仓库落地 | 状态 |
-|------|----------|------------|------|
-| Single Writer Principle | [LMAX Disruptor](https://lmax-exchange.github.io/disruptor/) | 每 symbol 一 `HpWorker` / 一 `HpEngine` 独占簿 | ✅ |
-| 预分配环形缓冲 | Disruptor / [Aeron](https://github.com/real-logic/aeron) | `SpscRing` 固定 2^n 槽；`HpEngine` 事件 `Vec` 预留容量 | ✅ |
-| 批量消费（batching） | Disruptor `BatchEventProcessor` | `SpscRing::pop_n` 一次 Acquire/Release 批量出队 | ✅ |
-| 避免伪共享 | Aeron / Disruptor | `head`/`tail` 各占独立 cache line（`CachePadded`） | ✅ |
-| Mechanical sympathy | Martin Thompson / Aeron | 定点 `i64`、价位簿、热路径无锁/无 JSON | ✅ |
-| Share-nothing 分片 | [Seastar](https://github.com/scylladb/seastar) | 按 symbol 分片；跨片不共享可变状态 | ✅（架构） |
-| 定点算术 | 主流撮核 / HFT | `SymbolScale` + tick/lot | ✅ |
-| 价位簿 + 同价 FIFO | 交易所撮核通识 | `Book` + `Level` + `VecDeque<id>` | ✅ |
-| 背压而非丢弃/扩容 | Disruptor / reactive streams | `try_submit` → `Busy` | ✅ |
-| 等待策略可配置 | Aeron `IdleStrategy` | `WaitStrategy::{BusySpin,Yield}` + `poll` | ✅ |
-| 观测与正确性分离 | 工程通识 | `match-core` golden；`match-bench` 测 hp | ✅ |
-| CPU 绑核 | DPDK / Aeron 部署实践 | `affinity` 模块 + 运维说明（可选 `core_affinity`） | ✅ 文档/API |
-| 最优价缓存 + Level 池 | perpetual_exchange / 撮核通识 | `Book` best_* + level_pool | ✅ |
-| ART / 字节 radix 档位索引 | perpetual_exchange ART | `--features art`（`ArtAskIndex`/`ArtBidIndex`） | ✅ 可选 |
-| 异步批写持久化 | perpetual_exchange persistence | `match-wal` Async 缓冲 + flush | ✅ 实验 |
-| 零拷贝 IPC | Aeron Media Driver | 未做（同进程 SPSC 即可；跨进程二期） | ⏳ |
-| 内核旁路网卡 | DPDK / io_uring | 运维层，非本 crate 范围 | ⏳ |
-| 业务 quirk 复刻 | — | 刻意不做（干净语义轨） | N/A |
+This note maps well-known exchange / messaging / storage design ideas onto this repo.  
+**Production default remains the equivalence track `match-core`; performance practices concentrate in `match-core-hp`.**
 
 ---
 
-## 2. 分项目要点（浓缩）
+## 1. Practice table
+
+| Idea | Exemplar | Landing here | Status |
+|------|----------|--------------|--------|
+| Single Writer Principle | [LMAX Disruptor](https://lmax-exchange.github.io/disruptor/) | One `HpWorker` / `HpEngine` per symbol owns the book | ✅ |
+| Preallocated ring | Disruptor / [Aeron](https://github.com/real-logic/aeron) | `SpscRing` power-of-two slots; reserved `HpEngine` event `Vec` | ✅ |
+| Batch consume | Disruptor `BatchEventProcessor` | `SpscRing::pop_n` one Acquire/Release for a batch | ✅ |
+| Avoid false sharing | Aeron / Disruptor | `head`/`tail` on separate cache lines (`CachePadded`) | ✅ |
+| Mechanical sympathy | Martin Thompson / Aeron | Fixed-point `i64`, level book, no lock/JSON on hot path | ✅ |
+| Share-nothing shards | [Seastar](https://github.com/scylladb/seastar) | Shard by symbol; no shared mutable state across shards | ✅ (arch) |
+| Fixed-point arithmetic | Exchange / HFT kernels | `SymbolScale` + tick/lot | ✅ |
+| Price levels + FIFO | Exchange common sense | `Book` + `Level` + `VecDeque<id>` | ✅ |
+| Backpressure, not drop/grow | Disruptor / reactive streams | `try_submit` → `Busy` | ✅ |
+| Configurable wait strategy | Aeron `IdleStrategy` | `WaitStrategy::{BusySpin,Yield}` + `poll` | ✅ |
+| Observe vs correctness split | Engineering common sense | `match-core` golden; `match-bench` for hp | ✅ |
+| CPU pinning | DPDK / Aeron ops | `affinity` module + ops notes (optional `core_affinity`) | ✅ docs/API |
+| Best-price cache + level pool | perpetual_exchange / kernels | `Book` best_* + level_pool | ✅ |
+| ART / byte-radix level index | perpetual_exchange ART | `--features art` (`ArtAskIndex`/`ArtBidIndex`) | ✅ optional |
+| Async batched persistence | perpetual_exchange persistence | `match-wal` async buffer + flush | ✅ experiment |
+| Zero-copy IPC | Aeron Media Driver | Not done (in-process SPSC enough; cross-process later) | ⏳ |
+| Kernel-bypass NIC | DPDK / io_uring | Ops layer, out of crate scope | ⏳ |
+| Business quirk replica | — | Intentionally not (clean semantics track) | N/A |
+
+---
+
+## 2. Project highlights (condensed)
 
 ### LMAX Disruptor
-- **单一写者**改共享结构，读者用序列号协调。  
-- **预先分配**整个 ring，运行期不 `new` 事件对象。  
-- **批量处理**降低内存屏障与分支频率。  
+- **Single writer** mutates shared structure; readers coordinate via sequences.
+- **Preallocate** the whole ring; no `new` for events at runtime.
+- **Batch** to cut barriers and branch frequency.
 
-→ 对应：`HpWorker` + `SpscRing` + `pop_n` + 预分配 `events`。
+→ Maps to: `HpWorker` + `SpscRing` + `pop_n` + reserved `events`.
 
 ### Aeron
-- **机械同情**：数据结构对齐缓存、减少伪共享、可控空转。  
-- **IdleStrategy**：BusySpin / Yield / Sleeping 按延迟与 CPU 权衡。  
+- **Mechanical sympathy:** cache-aligned structures, less false sharing, controlled spinning.
+- **IdleStrategy:** BusySpin / Yield / Sleeping trade latency vs CPU.
 
-→ 对应：`CachePadded` 游标、`WaitStrategy`、`HpWorker::poll`。
+→ Maps to: `CachePadded` cursors, `WaitStrategy`, `HpWorker::poll`.
 
 ### Seastar / Scylla
-- **每核一 shard**，无跨核锁；消息用显式队列。  
+- **One shard per core**, no cross-core locks; explicit queues for messages.
 
-→ 对应：每交易对独立引擎；禁止在热路径对簿加 `Mutex`。
+→ Maps to: per-symbol engines; no `Mutex` on the book hot path.
 
-### 交易所撮核通识
-- **价格档 + FIFO**，而非全市场 `TreeSet` 整单比较。  
-- **整数 tick/lot**，热路径不做任意精度十进制。  
+### Exchange matching common sense
+- **Price level + FIFO**, not a market-wide `TreeSet` of whole orders.
+- **Integer tick/lot** on the hot path — no arbitrary-precision decimal.
 
-→ 对应：`match-core-hp` 的 `Book` / `scale`；等价轨 `match-core` 保留 `BTreeSet`+`BigDecimal`。
-
----
-
-## 3. 代码索引
-
-| 模块 | 路径 |
-|------|------|
-| SPSC + 伪共享隔离 + 批量出队 | `crates/match-core-hp/src/spsc.rs` |
-| Worker + 等待策略 | `crates/match-core-hp/src/worker.rs` |
-| 价位簿 | `crates/match-core-hp/src/book.rs` |
-| 定点 | `crates/match-core-hp/src/scale.rs` |
-| 绑核说明 | `crates/match-core-hp/src/affinity.rs` |
-| 等价轨（对照） | `crates/match-core/` |
-| 基准 | `crates/match-bench/`、`docs/bench-results.md` |
+→ Maps to: `match-core-hp` `Book` / `scale`; equivalence `match-core` keeps `BTreeSet`+`BigDecimal`.
 
 ---
 
-## 4. 使用建议（性能轨）
+## 3. Code index
 
-1. Bench / 延迟敏感路径：用 `HpEngine` 或 `HpWorker` + `WaitStrategy::BusySpin`（独占核时）。  
-2. 与其他任务共享 CPU：用 `WaitStrategy::Yield`。  
-3. 生产切流前：先 L3/shadow（见 `docs/l3-shadow.md`），且默认仍走 `match-core`。  
-4. 绑核：进程启动后对 worker 线程调用 `affinity::pin_current_thread(core_id)`（需启用 feature `affinity`）。
-
----
-
-## 5. 刻意不做的「反模式」
-
-| 反模式 | 原因 |
+| Module | Path |
 |--------|------|
-| 热路径 `BigDecimal` / JSON | 分配与解析主导延迟 |
-| 多线程共写同一订单簿 | 锁与伪共享 |
-| Ring 满了自动扩容 | 隐藏延迟尖峰 |
-| 为追 Java quirk 牺牲干净热路径 | 双轨策略下由 `match-core` 承担等价 |
+| SPSC + false-sharing isolation + batch pop | `crates/match-core-hp/src/spsc.rs` |
+| Worker + wait strategy | `crates/match-core-hp/src/worker.rs` |
+| Level book | `crates/match-core-hp/src/book.rs` |
+| Fixed-point | `crates/match-core-hp/src/scale.rs` |
+| Affinity notes | `crates/match-core-hp/src/affinity.rs` |
+| Equivalence track (control) | `crates/match-core/` |
+| Benches | `crates/match-bench/`, `docs/bench-results.md` |
+
+---
+
+## 4. Usage tips (performance track)
+
+1. Bench / latency-sensitive: `HpEngine` or `HpWorker` + `WaitStrategy::BusySpin` (dedicated core).
+2. Shared CPU with other work: `WaitStrategy::Yield`.
+3. Before production cutover: L3/shadow ([`l3-shadow.md`](./l3-shadow.md)); default path stays `match-core`.
+4. Pinning: after start, call `affinity::pin_current_thread(core_id)` on the worker (feature `affinity`).
+
+---
+
+## 5. Deliberate anti-patterns
+
+| Anti-pattern | Why |
+|--------------|-----|
+| Hot-path `BigDecimal` / JSON | Alloc + parse dominate latency |
+| Multi-thread writers on one book | Locks + false sharing |
+| Auto-grow a full ring | Hides latency spikes |
+| Sacrifice clean hot path for Java quirks | Dual-track: `match-core` owns equivalence |

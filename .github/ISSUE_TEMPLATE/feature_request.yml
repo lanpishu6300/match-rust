@@ -1,20 +1,24 @@
-name: Feature request
-description: Propose an enhancement
+name: Feature request / 功能请求
+description: Propose an enhancement / 提出增强建议
 title: "[feat] "
 labels: ["enhancement"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        You may write in English or 中文.
   - type: textarea
     id: problem
     attributes:
       label: Problem / 问题
-      description: What gap does this fill? Dual-track impact?
+      description: What gap does this fill? Dual-track impact? / 要补什么缺口？是否影响双轨？
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Proposal / 方案
-      description: API, crate boundary, feature flag expectations
+      description: API, crate boundary, feature flag expectations / API、crate 边界、feature 预期
     validations:
       required: true
   - type: checkboxes
@@ -22,10 +26,10 @@ body:
     attributes:
       label: Track / 轨道
       options:
-        - label: Equivalence (`match-core`) only
-        - label: Performance (`match-core-hp`) only
-        - label: Shell / ops (`match-contract`)
-        - label: Docs / Wiki / CI
+        - label: Equivalence (`match-core`) only / 仅等价轨
+        - label: Performance (`match-core-hp`) only / 仅性能轨
+        - label: Shell / ops (`match-contract`) / 进程壳与运维
+        - label: Docs / Wiki / CI / 文档与 CI
   - type: textarea
     id: alternatives
     attributes:

@@ -1,87 +1,89 @@
-# 借鉴 perpetual_exchange 的分阶段优化设计
+# Phased Optimizations Inspired by perpetual_exchange
 
-**日期：** 2026-07-18  
-**状态：** Approved / Implemented (A–C skeleton) — 2026-07-18  
-**前置：** [2026-07-18-match-core-hp-design.md](./2026-07-18-match-core-hp-design.md)  
-**参考代码：** external `crypto-exchange` (perpetual_exchange R&D); this repository (`match-rust`)  
+**中文：** [2026-07-18-pe-optimizations-design.zh-CN.md](./2026-07-18-pe-optimizations-design.zh-CN.md)
 
-**决策摘要：** 顺序 **A → B → C**；Phase A 选 **A2**；落地方式选 **方案 1**（`LevelIndex` trait + feature `art`）
+**Date:** 2026-07-18  
+**Status:** Approved / Implemented (A–C skeleton) — 2026-07-18  
+**Prerequisite:** [2026-07-18-match-core-hp-design.md](./2026-07-18-match-core-hp-design.md)  
+**Reference code:** external `crypto-exchange` (perpetual_exchange R&D); this repository (`match-rust`)  
 
----
-
-## 0. 决策摘要
-
-| 项 | 选择 |
-|----|------|
-| 顺序 | Phase A（L1）→ Phase B（L2/L3）→ Phase C（异步 WAL） |
-| Phase A 范围 | 最优价缓存 + Level 池化 + **可选 ART**（feature `art`） |
-| 默认簿索引 | 仍为 `BTreeMap`（可回退、默认可测） |
-| ART | `--features art`；与默认路径同序列 fill 数必须一致 |
-| SIMD | **不移植** C++ PnL/虚高路径；ART Node16 SIMD 仅作 art 内可选微优化，非 A 必做 |
-| 生产默认 | `match-contract` 仍默认 `match-core`；hp / art / wal 均为实验开关 |
-| 基准纪律 | 凡微基准必须 `fill_rate > 0`（`fair_compare` 协议） |
+**Decision summary:** Order **A → B → C**; Phase A chooses **A2**; landing approach chooses **Option 1** (`LevelIndex` trait + feature `art`)
 
 ---
 
-## 1. 背景与目标
+## 0. Decision Summary
 
-`perpetual_exchange`（`crypto-exchange`）提供了内存池、ART、SIMD、异步落盘等优化叙事；`match-core-hp` 已具备定点、价位簿、SPSC、伪共享隔离等。本设计把**可借鉴且可验证**的部分按层落地，避免把 L1 再抠几个 ns 当成端到端胜利（见 `match-rust/docs/e2e-budget.md`）。
-
-### 1.1 目标
-
-1. **A**：L1 更贴机械同情（最优价 O(1)、Level 复用、可选 ART）。  
-2. **B**：contract 实验路径可走 `HpWorker` + adapter，并打出 L3/L2/L1 分段延迟。  
-3. **C**：异步批写 WAL，对照 C++ persistence 数量级，且不阻塞撮核热路径。
-
-### 1.2 非目标
-
-- 不替换生产默认引擎；不接真实 RocketMQ。  
-- 不移植账户 / 强平 / 限流 / 完整 ART+SIMD 引擎外壳。  
-- 不做 Aeron IPC（另项）。  
-- 不把 0% fill 的 ART+SIMD「峰值」写入有效对比表。
+| Item | Choice |
+|------|--------|
+| Order | Phase A (L1) → Phase B (L2/L3) → Phase C (async WAL) |
+| Phase A scope | Best-price cache + Level pooling + **optional ART** (feature `art`) |
+| Default book index | Remains `BTreeMap` (fallbackable, default-testable) |
+| ART | `--features art`; fill counts on the same sequence must match the default path |
+| SIMD | **Do not port** C++ PnL / inflated-path numbers; ART Node16 SIMD only as optional micro-opt inside art, not required for A |
+| Production default | `match-contract` still defaults to `match-core`; hp / art / wal are all experimental switches |
+| Benchmark discipline | Every micro-benchmark must have `fill_rate > 0` (`fair_compare` protocol) |
 
 ---
 
-## 2. 架构落点
+## 1. Background and Goals
+
+`perpetual_exchange` (`crypto-exchange`) offers an optimization narrative around memory pools, ART, SIMD, async persistence, etc.; `match-core-hp` already has fixed-point, price-level book, SPSC, false-sharing isolation, and more. This design lands the **borrowable and verifiable** parts layer by layer, avoiding treating a few more L1 nanoseconds as an end-to-end win (see `match-rust/docs/e2e-budget.md`).
+
+### 1.1 Goals
+
+1. **A**: L1 closer to mechanical sympathy (best price O(1), Level reuse, optional ART).  
+2. **B**: Contract experimental path can use `HpWorker` + adapter, and emit L3/L2/L1 segmented latency.  
+3. **C**: Async batched WAL, comparable in order of magnitude to C++ persistence, without blocking the match hot path.
+
+### 1.2 Non-Goals
+
+- Do not replace the production default engine; do not connect to real RocketMQ.  
+- Do not port accounts / liquidation / rate limiting / a full ART+SIMD engine shell.  
+- Do not build Aeron IPC (separate item).  
+- Do not put 0% fill ART+SIMD “peak” numbers into the valid comparison table.
+
+---
+
+## 2. Architecture Landing Points
 
 ```text
 match-rust/crates/
-├── match-core/          # 等价轨（不变）
-├── match-core-hp/       # Phase A：LevelIndex / best_* / level pool / feature art
-├── match-bench/         # fair_compare + art on/off 对照
-├── match-contract/      # Phase B：feature hp-engine + spans
-├── match-wal/           # Phase C：异步批写（新建小 crate）
-└── match-protocol/      # 不变
+├── match-core/          # Equivalence track (unchanged)
+├── match-core-hp/       # Phase A: LevelIndex / best_* / level pool / feature art
+├── match-bench/         # fair_compare + art on/off comparison
+├── match-contract/      # Phase B: feature hp-engine + spans
+├── match-wal/           # Phase C: async batch write (new small crate)
+└── match-protocol/      # Unchanged
 ```
 
-| 组件 | 职责 | 禁止 |
-|------|------|------|
-| `LevelIndex` | tick → Level 的插入/删除/最优价迭代 | 热路径分配字符串 / BigDecimal |
-| `art` feature | ART 实现替换默认 BTree 索引 | 改变撮合语义 |
-| `hp-engine` feature | contract worker 可选走 hp | 默认打开；默认依赖仍 core |
-| `match-wal` | 缓冲 + 后台 flush 成交/订单日志 | 同步 fsync 挡在 `on_order` 内（异步模式） |
+| Component | Responsibility | Forbidden |
+|-----------|----------------|-----------|
+| `LevelIndex` | tick → Level insert/delete/best-price iteration | Hot-path string / BigDecimal allocation |
+| `art` feature | ART implementation replaces default BTree index | Changing match semantics |
+| `hp-engine` feature | Contract worker may optionally use hp | Enabled by default; default deps still core |
+| `match-wal` | Buffer + background flush of fill/order logs | Sync fsync blocking inside `on_order` (async mode) |
 
 ---
 
-## 3. Phase A — L1（match-core-hp）
+## 3. Phase A — L1 (match-core-hp)
 
-### 3.1 最优价缓存
+### 3.1 Best-Price Cache
 
-在 `Book` 上维护：
+Maintain on `Book`:
 
 - `best_bid_tick: Option<i64>`
 - `best_ask_tick: Option<i64>`
 
-维护规则：
+Maintenance rules:
 
-- 档位从空→非空、或更优价出现：更新缓存。  
-- 最优档被撤空 / 吃空：从索引取下一最优（或 `None`）。  
-- `best_bid()` / `best_ask()` 热路径读缓存；debug assert 可与索引核对。
+- Level goes empty→non-empty, or a better price appears: update cache.  
+- Best level emptied by cancel / take: fetch next best from index (or `None`).  
+- `best_bid()` / `best_ask()` read the cache on the hot path; debug asserts may cross-check the index.
 
-### 3.2 Level 池化
+### 3.2 Level Pooling
 
-- `OrderStore` 已有 slot free-list；本期重点：**空 `Level`（含 `VecDeque`）回收复用**，减少档位创建/销毁分配。  
-- 池大小有上限；超出则丢弃空 Level 让分配器回收。
+- `OrderStore` already has a slot free-list; this phase focuses on: **recycle empty `Level`s (including `VecDeque`)** to cut level create/destroy allocation.  
+- Pool size is capped; beyond the cap, discard empty Levels and let the allocator reclaim.
 
 ### 3.3 `LevelIndex` + feature `art`
 
@@ -89,118 +91,118 @@ match-rust/crates/
 trait LevelIndex {
     fn get_mut(&mut self, tick: i64) -> &mut Level;
     fn remove_if_empty(&mut self, tick: i64);
-    fn best_tick(&self) -> Option<i64>;   // asks: min；bids: max
-    fn next_after_best(&self) -> Option<i64>; // 用于缓存失效后重算
-    // + 深度遍历所需的有序迭代（前 N 档）
+    fn best_tick(&self) -> Option<i64>;   // asks: min; bids: max
+    fn next_after_best(&self) -> Option<i64>; // recompute after cache invalidate
+    // + ordered iteration needed for depth traversal (top N levels)
 }
 ```
 
-- 默认：`BTreeLevelIndex`（今日 `BTreeMap` 行为）。  
-- `art`：`ArtLevelIndex`，key = 大端/可比较字节化的 `i64` tick（实现可自研精简 ART，或评估成熟 crate；**语义层不暴露 crate 细节**）。  
-- `Book` 对 bids/asks 各持一个 `LevelIndex`（bids 侧用「更高价更优」的比较约定，可在包装层处理）。
+- Default: `BTreeLevelIndex` (today’s `BTreeMap` behavior).  
+- `art`: `ArtLevelIndex`, key = big-endian / comparable byte form of `i64` tick (implementation may be a slim in-house ART, or evaluate a mature crate; **the semantic layer does not expose crate details**).  
+- `Book` holds one `LevelIndex` each for bids/asks (bids side uses “higher price is better” comparison convention, handleable in a wrapper layer).
 
-**SIMD：** 不在 A 的验收范围内。若 art 实现内对 Node16 查找使用 SIMD，须仍通过同序列 fill 一致性测试；不得单独宣传无 fill 的吞吐。
+**SIMD:** Not in A’s acceptance scope. If the art implementation uses SIMD for Node16 lookup, it must still pass same-sequence fill consistency tests; do not advertise throughput with no fills in isolation.
 
-### 3.4 验收（A）
+### 3.4 Acceptance (A)
 
-| 项 | 标准 |
-|----|------|
-| 正确性 | 现有 hp 集成测试全绿 |
-| 公平基准 | `fair_compare --n 50000` → fill_rate≈0.5，exit 0 |
-| art 一致性 | 同 workload，默认 vs `--features art` 的 `n_fills` 相同 |
-| 性能 | 相对 A 前基线：`fair_cross` 不显著回归；缓存命中路径有文档数字 |
+| Item | Standard |
+|------|----------|
+| Correctness | Existing hp integration tests all green |
+| Fair benchmark | `fair_compare --n 50000` → fill_rate≈0.5, exit 0 |
+| art consistency | Same workload, default vs `--features art` have identical `n_fills` |
+| Performance | Relative to pre-A baseline: `fair_cross` no significant regression; cache-hit path has documented numbers |
 
 ---
 
-## 4. Phase B — L2/L3（match-contract）
+## 4. Phase B — L2/L3 (match-contract)
 
 ### 4.1 Feature `hp-engine`
 
-- 关闭（默认）：行为与今相同（`match-core`）。  
-- 开启：symbol worker 入站经 `adapter` → `HpCommand` → `HpWorker`（或同线程 `HpEngine`，由配置选）。  
-- `match-contract` **不得**在默认依赖图中强制拉起 art。
+- Off (default): behavior unchanged from today (`match-core`).  
+- On: symbol worker inbound goes `adapter` → `HpCommand` → `HpWorker` (or same-thread `HpEngine`, selectable by config).  
+- `match-contract` **must not** force-pull art in the default dependency graph.
 
-### 4.2 分段计时
+### 4.2 Segmented Timing
 
-在单订单路径打点（`Instant` 或 tracing span）：
+Instrument the single-order path (`Instant` or tracing span):
 
-| Span | 含义 |
-|------|------|
-| `L3_adapt` | BbOrder / JSON 边界 → HpCommand |
-| `L2_queue` | 入队→worker 取出 |
+| Span | Meaning |
+|------|---------|
+| `L3_adapt` | BbOrder / JSON boundary → HpCommand |
+| `L2_queue` | Enqueue → worker dequeue |
 | `L1_on_order` | `HpEngine::on_order` |
 
-结果回填 `match-rust/docs/e2e-budget.md` 实测列（模板已有）。
+Results backfill the measured columns in `match-rust/docs/e2e-budget.md` (template already exists).
 
-### 4.3 验收（B）
+### 4.3 Acceptance (B)
 
-- feature 关：现有 contract 单测 / 启动路径不破坏。  
-- feature 开：memory transport 下可跑通挂/吃/撤；日志或 metrics 可见三段延迟。  
-- 仍不要求真实 NameServer。
+- Feature off: existing contract unit tests / startup paths unbroken.  
+- Feature on: under memory transport, rest/take/cancel works; logs or metrics show the three latency segments.  
+- Real NameServer still not required.
 
 ---
 
-## 5. Phase C — 异步 WAL（match-wal）
+## 5. Phase C — Async WAL (match-wal)
 
-### 5.1 模型（借鉴 C++ persistence buffer）
+### 5.1 Model (Inspired by C++ Persistence Buffer)
 
 ```text
-撮核线程 --append(record)--> 无锁/SPSC 缓冲 --后台线程--> 批量 write(+可选 fsync)
+Match thread --append(record)--> lock-free/SPSC buffer --background thread--> batch write(+optional fsync)
 ```
 
-- 记录类型：最小集 `OrderAccepted` / `Fill` / `Cancel`（二进制或长度前缀，一期可用 bincode/手工布局）。  
-- 模式：`Async`（默认实验）与可选 `Sync`（测试正确性）。  
-- 缓冲满：背压策略为 `Busy`/阻塞 append（文档写清），**禁止静默丢日志**（除非显式 `BestEffort` 配置，默认关闭）。
+- Record types: minimal set `OrderAccepted` / `Fill` / `Cancel` (binary or length-prefixed; phase one may use bincode / hand layout).  
+- Modes: `Async` (default experiment) and optional `Sync` (correctness testing).  
+- Buffer full: backpressure is `Busy`/blocking append (document clearly); **silent log drop is forbidden** (unless explicit `BestEffort` config, off by default).
 
-### 5.2 挂接
+### 5.2 Attachment
 
-- 仅 hp 实验路径可选挂载；core 默认路径不强制。  
-- WAL 失败：metrics + 日志；Async 模式不回滚已撮合结果（与「先撮后记」一致，需在运维文档标明）。
+- Optional mount only on the hp experimental path; core default path is not forced.  
+- WAL failure: metrics + logs; Async mode does not roll back already-matched results (consistent with “match first, then record”; must be called out in ops docs).
 
-### 5.3 验收（C）
+### 5.3 Acceptance (C)
 
-- 独立微基准：记录/秒、平均 flush 延迟（对照 `crypto-exchange` persistence 量级作参考，不混入 L1 CSV）。  
-- Async：`on_order` 热路径无同步磁盘 wait（可用 hook/计数断言）。  
-- 重启回放**不在本期**（只写前、不建完整 event-sourcing 回放）。
-
----
-
-## 6. 风险与缓解
-
-| 风险 | 缓解 |
-|------|------|
-| ART 实现错误导致档位顺序错 | 同序列 fill 对比 + 深度快照对比测试 |
-| 最优价缓存不同步 | debug assert；单测专门打撤最优/吃空档 |
-| hp-engine 误开上生产 | feature 默认关；README 警告 |
-| WAL 背压拖垮撮合 | 缓冲 sizing + metrics；压力测试文档 |
-| 对标 C++ 虚高数字 | 强制 fair_compare 纪律 |
+- Standalone micro-benchmark: records/sec, average flush latency (use `crypto-exchange` persistence order-of-magnitude as reference; do not mix into L1 CSV).  
+- Async: `on_order` hot path has no synchronous disk wait (assertable via hooks/counters).  
+- Restart replay is **out of scope** this phase (write-ahead only; no full event-sourcing replay).
 
 ---
 
-## 7. 文档与基准更新
+## 6. Risks and Mitigations
 
-- `match-rust/docs/best-practices.md`：增加 perpetual_exchange → 本仓库映射行。  
-- `match-rust/docs/bench-results.md`：A 完成后追加缓存/art 数字。  
-- `match-rust/docs/e2e-budget.md`：B 完成后填实测。  
-- `match-rust/docs/fair-compare.md`：注明 art feature 对照用法。
+| Risk | Mitigation |
+|------|------------|
+| ART bugs scramble level order | Same-sequence fill compare + depth snapshot compare tests |
+| Best-price cache out of sync | debug assert; unit tests specifically cancel best / take empty level |
+| hp-engine accidentally enabled in prod | Feature off by default; README warning |
+| WAL backpressure stalls matching | Buffer sizing + metrics; stress-test docs |
+| Inflated C++ comparison numbers | Enforce fair_compare discipline |
 
 ---
 
-## 8. 实施顺序（计划阶段细化）
+## 7. Docs and Benchmark Updates
 
-1. A1 最优价缓存 + 测试  
-2. A1 Level 池 + 测试  
-3. A2 `LevelIndex` 抽象（默认 BTree，行为不变）  
-4. A2 ART 实现 + feature + 一致性测试  
+- `match-rust/docs/best-practices.md`: add perpetual_exchange → this-repo mapping rows.  
+- `match-rust/docs/bench-results.md`: after A, append cache/art numbers.  
+- `match-rust/docs/e2e-budget.md`: after B, fill measured values.  
+- `match-rust/docs/fair-compare.md`: note art feature comparison usage.
+
+---
+
+## 8. Implementation Order (Refined at Planning Stage)
+
+1. A1 best-price cache + tests  
+2. A1 Level pool + tests  
+3. A2 `LevelIndex` abstraction (default BTree, behavior unchanged)  
+4. A2 ART implementation + feature + consistency tests  
 5. B `hp-engine` + spans  
-6. C `match-wal` + 微基准  
+6. C `match-wal` + micro-benchmarks  
 
-每步可独立提交；A 完成前不开始 B 的生产接线（可并行写 wal crate 骨架，但不挂 contract）。
+Each step can land as an independent commit; do not start B’s production wiring before A completes (WAL crate skeleton may be written in parallel, but not attached to contract).
 
 ---
 
-## 9. 开放项（实现计划阶段关闭）
+## 9. Open Items (Closed at Implementation-Plan Stage)
 
-- ART：自研精简 vs 外部 crate（以许可证、`i64` key、有序最小/最大支持为准）。  
-- WAL 记录编码：手工固定布局 vs bincode。  
-- `hp-engine` 下出站事件是否先转回 Java 形 JSON（建议：是，保持 Topic 兼容；转换放 L2′）。
+- ART: in-house slim vs external crate (judge by license, `i64` key, ordered min/max support).  
+- WAL record encoding: hand-fixed layout vs bincode.  
+- Under `hp-engine`, whether outbound events first convert back to Java-shaped JSON (recommendation: yes, keep Topic compatibility; conversion lives at L2′).

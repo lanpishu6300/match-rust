@@ -1,11 +1,14 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability / 安全漏洞
-    url: https://github.com/lanpishu6300/match-rust/blob/main/SECURITY.md
-    about: Do not file public issues for security reports — follow SECURITY.md
+    url: https://github.com/lanpishu6300/match-rust/blob/main/SECURITY.zh-CN.md
+    about: Do not file public issues — follow SECURITY.md / SECURITY.zh-CN.md
   - name: Wiki / 文档
-    url: https://github.com/lanpishu6300/match-rust/blob/main/docs/wiki/en/Home.md
-    about: Getting started, FAQ, architecture (EN + 中文 under docs/wiki/zh)
-  - name: Companion C++ project
+    url: https://github.com/lanpishu6300/match-rust/wiki
+    about: Getting started, FAQ, architecture (EN + 中文)
+  - name: Docs index / 文档索引
+    url: https://github.com/lanpishu6300/match-rust/blob/main/docs/README.zh-CN.md
+    about: Specs, plans, ops — bilingual Foo.md / Foo.zh-CN.md
+  - name: Companion C++ project / 配套 C++ 项目
     url: https://github.com/lanpishu6300/crypto-exchange
     about: perpetual_exchange R&D matching engine

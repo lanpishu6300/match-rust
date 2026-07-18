@@ -1,5 +1,7 @@
 # RocketMQ client spike (Task 12)
 
+**中文：** [rmq-spike.zh-CN.md](./rmq-spike.zh-CN.md)
+
 **Date:** 2026-07-17  
 **Target NameServer:** `192.168.0.241:9876` (from `config.example.yaml`)  
 **Result:** **FAIL** — production RocketMQ adapter **not wired**
