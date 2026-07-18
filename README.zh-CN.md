@@ -1,6 +1,6 @@
 # match-rust
 
-面向合约（及现货）路径的 Rust **撮合引擎**工作区：双轨设计——Java 可观测等价核 + 实验性极致低延迟核。
+面向合约（及现货）撮合路径的 Rust **撮合引擎**工作区：双轨设计——Java 可观测等价核 + 实验性极致低延迟核。
 
 布局与工程化参考 [perpetual_exchange / crypto-exchange](https://github.com/lanpishu6300/crypto-exchange)（C++ 研发仓），目标是与现网 Java 服务 **Topic/JSON 兼容** 灰度切换。本仓为其姊妹项目。
 
