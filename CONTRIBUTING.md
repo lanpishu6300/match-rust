@@ -1,6 +1,7 @@
 # Contributing
 
-Thanks for helping improve **match-rust**.
+Thanks for helping improve **match-rust**.  
+**中文：** [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md) · **Wiki：** [docs/wiki/en](docs/wiki/en/Home.md) / [docs/wiki/zh](docs/wiki/zh/Home.md)
 
 ## Development setup
 

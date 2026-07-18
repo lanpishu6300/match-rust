@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose an enhancement
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 问题
+      description: What gap does this fill? Dual-track impact?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal / 方案
+      description: API, crate boundary, feature flag expectations
+    validations:
+      required: true
+  - type: checkboxes
+    id: track
+    attributes:
+      label: Track / 轨道
+      options:
+        - label: Equivalence (`match-core`) only
+        - label: Performance (`match-core-hp`) only
+        - label: Shell / ops (`match-contract`)
+        - label: Docs / Wiki / CI
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 备选

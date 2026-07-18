@@ -6,10 +6,14 @@ Self-contained docs for the **match-rust** GitHub repository (no links outside t
 
 | Doc | Audience |
 |-----|----------|
+| [wiki/zh/Home.md](./wiki/zh/Home.md) | 中文 Wiki（入门 / FAQ / 路线图） |
+| [wiki/en/Home.md](./wiki/en/Home.md) | English Wiki |
+| [../README.zh-CN.md](../README.zh-CN.md) | 中文 README |
+| [../README.md](../README.md) | English README |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Contributors — crate boundaries |
 | [COVERAGE.md](./COVERAGE.md) | 100% branch coverage gate |
-| [../README.md](../README.md) | Quick start / features |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to change code |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) · [../CONTRIBUTING.zh-CN.md](../CONTRIBUTING.zh-CN.md) | How to change code |
+| [../SECURITY.md](../SECURITY.md) · [../SUPPORT.md](../SUPPORT.md) | Security & support |
 | [../CHANGELOG.md](../CHANGELOG.md) | Releases |
 
 ## Designs (specs)

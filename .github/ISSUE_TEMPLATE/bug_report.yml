@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a defect in match-rust
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues use [SECURITY.md](../SECURITY.md), not this form.
+        中文说明可写在同一 Issue 中。
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary / 摘要
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction / 复现步骤
+      description: Commands, config snippets, minimal order sequence
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / 版本
+      description: git commit SHA or tag; `rustc -V`
+    validations:
+      required: true
+  - type: dropdown
+    id: crate
+    attributes:
+      label: Component / 组件
+      options:
+        - match-core
+        - match-core-hp
+        - match-contract
+        - match-protocol
+        - match-replay
+        - match-wal
+        - match-bench
+        - docs / CI
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual / 期望与实际
+    validations:
+      required: true

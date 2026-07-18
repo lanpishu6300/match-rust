@@ -4,7 +4,9 @@ High-performance cryptocurrency **matching engines** in Rust for contract (and s
 
 Inspired in layout and packaging by [perpetual_exchange / crypto-exchange](https://github.com/lanpishu6300/crypto-exchange) (C++ R&D), while targeting **Topic/JSON-compatible** cutover against live Java services. Companion repository to that project.
 
-**License:** [Apache License 2.0](LICENSE)
+**License:** [Apache License 2.0](LICENSE)  
+**中文：** [README.zh-CN.md](README.zh-CN.md)  
+**Wiki：** [English](docs/wiki/en/Home.md) · [中文](docs/wiki/zh/Home.md)
 
 ---
 
@@ -135,15 +137,15 @@ Published numbers and methodology: [`docs/bench-results.md`](docs/bench-results.
 
 ## Documentation
 
-Full index: **[`docs/README.md`](docs/README.md)**
-
 | Doc | Description |
 |-----|-------------|
+| [Wiki Home (EN)](docs/wiki/en/Home.md) / [Wiki 首页（中文）](docs/wiki/zh/Home.md) | Getting started, FAQ, roadmap |
+| [Full docs index](docs/README.md) | Specs, plans, ops |
 | [Architecture notes](docs/ARCHITECTURE.md) | Crate map & dual-track rules |
 | [Equivalence design](docs/specs/2026-07-17-rust-match-engines-design.md) | Protocol / cutover |
 | [HP design](docs/specs/2026-07-18-match-core-hp-design.md) | Fixed-point / price-level |
 | [PE optimizations](docs/specs/2026-07-18-pe-optimizations-design.md) | Cache / ART / wal A→B→C |
-| [Coverage policy](docs/COVERAGE.md) | 100% branch gate (protocol/core/hp/wal) |
+| [Coverage policy](docs/COVERAGE.md) | 100% branch gate (protocol/core/hp) |
 | [OSS best practices](docs/best-practices.md) | Disruptor / Aeron / Seastar mapping |
 | [Cutover runbook](docs/cutover-runbook.md) | Per-symbol grey release |
 | [RMQ spike](docs/rmq-spike.md) | RocketMQ status |
@@ -171,9 +173,11 @@ docker run --rm -p 31015:31015 \
 
 ## Contributing & release
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — branch, test, PR expectations  
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md)  
+- [`SECURITY.md`](SECURITY.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · [`SUPPORT.md`](SUPPORT.md)  
 - [`CHANGELOG.md`](CHANGELOG.md) — version history  
-- CI: `.github/workflows/ci.yml` on push/PR  
+- CI: `.github/workflows/ci.yml` · coverage gate: `make cov`  
+- Issue templates under `.github/ISSUE_TEMPLATE/`  
 
 Suggested release tags: `v0.1.0`, `v0.2.0`, …
 
