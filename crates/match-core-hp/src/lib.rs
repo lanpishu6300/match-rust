@@ -5,8 +5,12 @@
 
 pub mod adapter;
 pub mod affinity;
+#[cfg(feature = "art")]
+mod art_index;
 mod book;
 mod engine;
+mod level;
+mod level_index;
 mod order_store;
 mod scale;
 mod spsc;

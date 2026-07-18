@@ -1,34 +1,30 @@
+use crate::level::Level;
+use crate::level_index::LevelIndex;
 use crate::order_store::OrderStore;
 use crate::types::{HpOrder, Side};
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, VecDeque};
+
+#[cfg(not(feature = "art"))]
+use crate::level_index::{BTreeAskIndex, BTreeBidIndex};
+#[cfg(feature = "art")]
+use crate::art_index::{ArtAskIndex, ArtBidIndex};
 
 const LEVEL_POOL_CAP: usize = 256;
 
-#[derive(Debug, Default)]
-struct Level {
-    total_lot: i64,
-    /// FIFO order ids at this price.
-    ids: VecDeque<u64>,
-}
+#[cfg(not(feature = "art"))]
+type AskIndex = BTreeAskIndex;
+#[cfg(not(feature = "art"))]
+type BidIndex = BTreeBidIndex;
 
-impl Level {
-    fn push(&mut self, id: u64, lot: i64) {
-        self.ids.push_back(id);
-        self.total_lot += lot;
-    }
-
-    fn clear(&mut self) {
-        self.total_lot = 0;
-        self.ids.clear();
-    }
-}
+#[cfg(feature = "art")]
+type AskIndex = ArtAskIndex;
+#[cfg(feature = "art")]
+type BidIndex = ArtBidIndex;
 
 /// Price-level order book with FIFO within each tick.
 #[derive(Debug)]
 pub struct Book {
-    bids: BTreeMap<Reverse<i64>, Level>,
-    asks: BTreeMap<i64, Level>,
+    bids: BidIndex,
+    asks: AskIndex,
     store: OrderStore,
     best_bid_tick: Option<i64>,
     best_ask_tick: Option<i64>,
@@ -38,8 +34,8 @@ pub struct Book {
 impl Book {
     pub fn new() -> Self {
         Self {
-            bids: BTreeMap::new(),
-            asks: BTreeMap::new(),
+            bids: BidIndex::default(),
+            asks: AskIndex::default(),
             store: OrderStore::new(),
             best_bid_tick: None,
             best_ask_tick: None,
@@ -49,8 +45,8 @@ impl Book {
 
     pub fn with_capacity(order_cap: usize) -> Self {
         Self {
-            bids: BTreeMap::new(),
-            asks: BTreeMap::new(),
+            bids: BidIndex::default(),
+            asks: AskIndex::default(),
             store: OrderStore::with_capacity(order_cap),
             best_bid_tick: None,
             best_ask_tick: None,
@@ -103,7 +99,6 @@ impl Book {
         order.open_lot -= qty_lot;
         let remaining = order.open_lot;
         if remaining < 0 {
-            // Should not happen under correct matching; clamp for safety.
             order.open_lot = 0;
         }
         let level = self.level_mut(side, tick);
@@ -112,7 +107,6 @@ impl Book {
             level.total_lot = 0;
         }
         if remaining <= 0 {
-            // Pop front if it is this id (expected during match walk).
             if level.ids.front().copied() == Some(id) {
                 level.ids.pop_front();
             } else {
@@ -129,15 +123,12 @@ impl Book {
     }
 
     pub fn best_ask(&self) -> Option<i64> {
-        debug_assert_eq!(self.best_ask_tick, self.asks.keys().next().copied());
+        debug_assert_eq!(self.best_ask_tick, self.asks.best_tick());
         self.best_ask_tick
     }
 
     pub fn best_bid(&self) -> Option<i64> {
-        debug_assert_eq!(
-            self.best_bid_tick,
-            self.bids.keys().next().map(|Reverse(t)| *t)
-        );
+        debug_assert_eq!(self.best_bid_tick, self.bids.best_tick());
         self.best_bid_tick
     }
 
@@ -147,43 +138,33 @@ impl Book {
 
     pub fn depth(&self, side: Side, n: usize) -> Vec<(i64, i64)> {
         match side {
-            Side::Buy => self
-                .bids
-                .iter()
-                .take(n)
-                .map(|(Reverse(t), lvl)| (*t, lvl.total_lot))
-                .collect(),
-            Side::Sell => self
-                .asks
-                .iter()
-                .take(n)
-                .map(|(t, lvl)| (*t, lvl.total_lot))
-                .collect(),
+            Side::Buy => self.bids.depth(n),
+            Side::Sell => self.asks.depth(n),
         }
     }
 
     fn level(&self, side: Side, tick: i64) -> Option<&Level> {
         match side {
-            Side::Buy => self.bids.get(&Reverse(tick)),
-            Side::Sell => self.asks.get(&tick),
+            Side::Buy => self.bids.get(tick),
+            Side::Sell => self.asks.get(tick),
         }
     }
 
     fn level_mut(&mut self, side: Side, tick: i64) -> &mut Level {
         match side {
             Side::Buy => {
-                if self.bids.contains_key(&Reverse(tick)) {
-                    return self.bids.get_mut(&Reverse(tick)).expect("checked");
+                if !self.bids.contains(tick) {
+                    let lvl = self.take_level();
+                    self.bids.insert(tick, lvl);
                 }
-                let lvl = self.take_level();
-                self.bids.entry(Reverse(tick)).or_insert(lvl)
+                self.bids.get_mut(tick).expect("just inserted")
             }
             Side::Sell => {
-                if self.asks.contains_key(&tick) {
-                    return self.asks.get_mut(&tick).expect("checked");
+                if !self.asks.contains(tick) {
+                    let lvl = self.take_level();
+                    self.asks.insert(tick, lvl);
                 }
-                let lvl = self.take_level();
-                self.asks.entry(tick).or_insert(lvl)
+                self.asks.get_mut(tick).expect("just inserted")
             }
         }
     }
@@ -218,12 +199,12 @@ impl Book {
         match side {
             Side::Buy => {
                 if self.best_bid_tick == Some(tick) {
-                    self.best_bid_tick = self.bids.keys().next().map(|Reverse(t)| *t);
+                    self.best_bid_tick = self.bids.best_tick();
                 }
             }
             Side::Sell => {
                 if self.best_ask_tick == Some(tick) {
-                    self.best_ask_tick = self.asks.keys().next().copied();
+                    self.best_ask_tick = self.asks.best_tick();
                 }
             }
         }
@@ -232,8 +213,8 @@ impl Book {
     fn remove_from_level(&mut self, side: Side, tick: i64, id: u64, open_lot: i64) {
         let empty = {
             let Some(level) = (match side {
-                Side::Buy => self.bids.get_mut(&Reverse(tick)),
-                Side::Sell => self.asks.get_mut(&tick),
+                Side::Buy => self.bids.get_mut(tick),
+                Side::Sell => self.asks.get_mut(tick),
             }) else {
                 return;
             };
@@ -251,8 +232,8 @@ impl Book {
 
     fn remove_empty_level(&mut self, side: Side, tick: i64) {
         let removed = match side {
-            Side::Buy => self.bids.remove(&Reverse(tick)),
-            Side::Sell => self.asks.remove(&tick),
+            Side::Buy => self.bids.remove(tick),
+            Side::Sell => self.asks.remove(tick),
         };
         if let Some(level) = removed {
             self.recycle_level(level);

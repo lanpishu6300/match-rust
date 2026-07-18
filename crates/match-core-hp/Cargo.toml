@@ -7,6 +7,8 @@ edition.workspace = true
 default = []
 ## Optional CPU pinning via `core_affinity` (see `affinity` module / docs/best-practices.md).
 affinity = ["dep:core_affinity"]
+## Byte-radix (ART-style) price-level index instead of BTreeMap.
+art = []
 
 [dependencies]
 thiserror = { workspace = true }
