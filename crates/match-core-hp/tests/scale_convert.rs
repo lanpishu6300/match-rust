@@ -90,3 +90,33 @@ fn rejects_leading_dot_and_negative_fraction() {
     assert!(to_tick(&s, ".25").is_err());
     assert_eq!(to_tick(&s, "-0.01").unwrap(), -1);
 }
+
+#[test]
+fn rejects_i64_min_negation_overflow() {
+    let s = SymbolScale {
+        price_scale: 0,
+        qty_scale: 0,
+    };
+    assert!(to_tick(&s, "-9223372036854775808").is_err());
+}
+
+#[test]
+fn zero_and_negative_formatting() {
+    let s = SymbolScale {
+        price_scale: 2,
+        qty_scale: 2,
+    };
+    assert_eq!(to_tick(&s, "0.00").unwrap(), 0);
+    assert_eq!(from_tick(&s, -125), "-1.25");
+    assert_eq!(from_lot(&s, 0), "0.00");
+}
+
+#[test]
+fn rejects_non_digit_integer_part() {
+    let s = SymbolScale {
+        price_scale: 2,
+        qty_scale: 6,
+    };
+    assert!(to_tick(&s, "1a.0").is_err());
+    assert!(to_tick(&s, "  ").is_err());
+}

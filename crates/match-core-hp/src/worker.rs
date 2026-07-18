@@ -68,10 +68,8 @@ impl HpWorker {
             let n = self.ring.pop_n(&mut self.batch, self.ring.capacity());
             if n == 0 {
                 idle = idle.saturating_add(1);
-                if let Some(max) = max_idle_spins {
-                    if idle >= max {
-                        break;
-                    }
+                if Self::idle_limit_reached(idle, max_idle_spins) {
+                    break;
                 }
                 match wait {
                     WaitStrategy::BusySpin => std::hint::spin_loop(),
@@ -85,6 +83,19 @@ impl HpWorker {
         total_fills
     }
 
+    /// Whether idle polling should stop.
+    ///
+    /// `max_idle_spins == None` means a dedicated thread never stops on idle
+    /// (caller must only use this when another task will keep feeding work or the
+    /// process is shutting down).
+    pub(crate) fn idle_limit_reached(idle: usize, max_idle_spins: Option<usize>) -> bool {
+        match max_idle_spins {
+            Some(max) => idle >= max,
+            // Dedicated-thread mode: never treat idle as terminal.
+            None => false,
+        }
+    }
+
     fn drain_batch(&mut self) -> usize {
         let mut fills = 0usize;
         for cmd in self.batch.drain(..) {
@@ -95,5 +106,18 @@ impl HpWorker {
                 .count();
         }
         fills
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_limit_covers_bounded_and_dedicated() {
+        assert!(HpWorker::idle_limit_reached(3, Some(3)));
+        assert!(!HpWorker::idle_limit_reached(2, Some(3)));
+        assert!(!HpWorker::idle_limit_reached(1_000, None));
     }
 }

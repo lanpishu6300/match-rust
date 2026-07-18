@@ -3,6 +3,24 @@
 use match_core_hp::{HpCommand, Side, SpscRing};
 
 #[test]
+fn pop_n_on_empty_returns_zero() {
+    let r = SpscRing::with_capacity(4);
+    let mut out = Vec::new();
+    assert_eq!(r.pop_n(&mut out, 8), 0);
+    assert!(out.is_empty());
+}
+
+#[test]
+fn pop_n_zero_max_is_no_op() {
+    let r = SpscRing::with_capacity(4);
+    r.try_push(HpCommand::Cancel { id: 1 }).unwrap();
+    let mut out = Vec::new();
+    assert_eq!(r.pop_n(&mut out, 0), 0);
+    assert!(out.is_empty());
+    assert_eq!(r.len_approx(), 1);
+}
+
+#[test]
 fn try_pop_drains_after_batch_push() {
     let r = SpscRing::with_capacity(4);
     for id in 1..=3u64 {

@@ -11,6 +11,9 @@ affinity = ["dep:core_affinity"]
 ## Byte-radix (ART-style) price-level index instead of BTreeMap.
 art = []
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)', 'cfg(coverage)'] }
+
 [dependencies]
 thiserror = { workspace = true }
 match-protocol = { path = "../match-protocol" }

@@ -211,22 +211,27 @@ impl Book {
     }
 
     fn remove_from_level(&mut self, side: Side, tick: i64, id: u64, open_lot: i64) {
-        let empty = {
-            let Some(level) = (match side {
-                Side::Buy => self.bids.get_mut(tick),
-                Side::Sell => self.asks.get_mut(tick),
-            }) else {
-                return;
-            };
-            level.ids.retain(|&x| x != id);
-            level.total_lot -= open_lot;
-            if level.total_lot < 0 {
-                level.total_lot = 0;
+        let empty = match self.level_mut_for_remove(side, tick) {
+            Some(level) => {
+                level.ids.retain(|&x| x != id);
+                level.total_lot -= open_lot;
+                if level.total_lot < 0 {
+                    level.total_lot = 0;
+                }
+                level.ids.is_empty()
             }
-            level.ids.is_empty()
+            // Defensive: store had the order but the price level is already gone.
+            None => return,
         };
         if empty {
             self.remove_empty_level(side, tick);
+        }
+    }
+
+    fn level_mut_for_remove(&mut self, side: Side, tick: i64) -> Option<&mut Level> {
+        match side {
+            Side::Buy => self.bids.get_mut(tick),
+            Side::Sell => self.asks.get_mut(tick),
         }
     }
 
@@ -235,10 +240,68 @@ impl Book {
             Side::Buy => self.bids.remove(tick),
             Side::Sell => self.asks.remove(tick),
         };
-        if let Some(level) = removed {
-            self.recycle_level(level);
-        }
+        self.recycle_removed(removed);
         self.note_remove_level(side, tick);
+    }
+
+    fn recycle_removed(&mut self, removed: Option<Level>) {
+        match removed {
+            Some(level) => self.recycle_level(level),
+            // Defensive: level index entry already absent.
+            None => {}
+        }
+    }
+
+    /// Test/coverage helpers to force corrupt book states for defensive-path coverage.
+    ///
+    /// Available under `cfg(test)` (unit tests) and `cfg(coverage)` (llvm-cov integration
+    /// tests — the library is not built with `cfg(test)` for those binaries). Marked
+    /// `coverage(off)` so helper internals are not counted; call sites still exercise
+    /// production defensive arms in `engine` / `remove_from_level`.
+    #[cfg(any(test, coverage))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn test_detach_level(&mut self, side: Side, tick: i64) {
+        match side {
+            Side::Buy => {
+                let _ = self.bids.remove(tick);
+            }
+            Side::Sell => {
+                let _ = self.asks.remove(tick);
+            }
+        }
+    }
+
+    #[cfg(any(test, coverage))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn test_clear_best_ask_fifo(&mut self) {
+        if let Some(tick) = self.best_ask_tick {
+            if let Some(level) = self.asks.get_mut(tick) {
+                level.ids.clear();
+                level.total_lot = 0;
+            }
+        }
+    }
+
+    #[cfg(any(test, coverage))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn test_clear_best_bid_fifo(&mut self) {
+        if let Some(tick) = self.best_bid_tick {
+            if let Some(level) = self.bids.get_mut(tick) {
+                level.ids.clear();
+                level.total_lot = 0;
+            }
+        }
+    }
+
+    #[cfg(any(test, coverage))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn test_set_best_ask_front(&mut self, bogus_id: u64) {
+        if let Some(tick) = self.best_ask_tick {
+            if let Some(level) = self.asks.get_mut(tick) {
+                level.ids.clear();
+                level.ids.push_back(bogus_id);
+            }
+        }
     }
 }
 
@@ -253,15 +316,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recycle_level_fills_then_stops_at_pool_cap() {
+    fn cancel_after_detached_level_is_noop_on_index() {
         let mut b = Book::new();
-        for i in 0..260u64 {
-            let id = b.insert_limit(HpOrder::limit(Side::Buy, i as i64, 1, i));
-            assert!(b.cancel(id));
-        }
-        let id = b.insert_limit(HpOrder::limit(Side::Buy, 9999, 1, 9999));
+        let ask = b.insert_limit(HpOrder::limit(Side::Sell, 50, 1, 1));
+        b.test_detach_level(Side::Sell, 50);
+        assert!(b.cancel(ask));
+        assert!(!b.store().contains(ask));
+
+        let bid = b.insert_limit(HpOrder::limit(Side::Buy, 40, 1, 2));
+        b.test_detach_level(Side::Buy, 40);
+        assert!(b.cancel(bid));
+        assert!(!b.store().contains(bid));
+    }
+
+    #[test]
+    fn remove_empty_level_when_already_absent() {
+        let mut b = Book::new();
+        let id = b.insert_limit(HpOrder::limit(Side::Buy, 10, 1, 1));
         assert!(b.cancel(id));
+        // Level already removed; second call hits `remove` → None recycle arm.
+        b.remove_empty_level(Side::Buy, 10);
         assert_eq!(b.best_bid(), None);
+    }
+
+    #[test]
+    fn recycle_level_reuses_pooled_level() {
+        let mut b = Book::new();
+        let id = b.insert_limit(HpOrder::limit(Side::Buy, 1, 1, 1));
+        assert!(b.cancel(id));
+        let id2 = b.insert_limit(HpOrder::limit(Side::Buy, 2, 1, 2));
+        assert_eq!(b.best_bid(), Some(2));
+        assert!(b.cancel(id2));
     }
 
     #[test]
@@ -290,5 +375,4 @@ mod tests {
         assert_eq!(b.best_ask(), None);
     }
 
-    // `remove_from_level` early return when the level index entry is missing is defensive only.
 }

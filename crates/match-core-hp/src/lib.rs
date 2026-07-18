@@ -3,6 +3,8 @@
 //! Not Java-equivalent; not used by `match-contract` by default.
 //! Design lineage and OSS practice mapping: `docs/best-practices.md`.
 
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 pub mod adapter;
 pub mod affinity;
 #[cfg(feature = "art")]

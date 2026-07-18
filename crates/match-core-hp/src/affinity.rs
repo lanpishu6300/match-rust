@@ -44,6 +44,7 @@ pub fn pin_current_thread(core_id: usize) -> Result<(), AffinityError> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

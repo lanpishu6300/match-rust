@@ -9,6 +9,90 @@ use match_core_hp::{Book, HpCommand, HpEngine, HpEvent, HpOrder, HpWorker, Order
 #[test]
 fn engine_default_constructible() {
     assert!(HpEngine::default().book.best_bid().is_none());
+    assert!(Book::default().best_ask().is_none());
+}
+
+#[test]
+fn match_buy_stops_when_taker_qty_exhausted_with_book_left() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 5,
+        ts: 1,
+        client_id: 1,
+    });
+    let ev = e.on_order(HpCommand::Market {
+        side: Side::Buy,
+        qty_lot: 2,
+        ts: 2,
+        max_levels: None,
+        client_id: 2,
+    });
+    assert_eq!(ev.len(), 1);
+    assert_eq!(e.book.best_ask(), Some(100));
+}
+
+#[test]
+fn match_sell_stops_when_maker_open_non_positive() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Buy,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    });
+    let maker = e.book.front_id(Side::Buy, 100).unwrap();
+    e.book.store_mut().get_mut(maker).unwrap().open_lot = 0;
+    let ev = e.on_order(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 2,
+        client_id: 2,
+    });
+    assert!(matches!(ev[0], HpEvent::Rest { .. }));
+}
+
+#[test]
+fn limit_sell_crosses_when_bid_at_or_above_limit() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Buy,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    });
+    let ev = e.on_order(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 2,
+        client_id: 2,
+    });
+    assert!(matches!(ev[0], HpEvent::Fill { price_tick: 100, .. }));
+}
+
+#[test]
+fn cancel_non_best_ask_keeps_best_cache() {
+    let mut b = Book::new();
+    let _best = b.insert_limit(HpOrder::limit(Side::Sell, 50, 1, 1));
+    let worse = b.insert_limit(HpOrder::limit(Side::Sell, 60, 1, 2));
+    assert_eq!(b.best_ask(), Some(50));
+    assert!(b.cancel(worse));
+    assert_eq!(b.best_ask(), Some(50));
+}
+
+#[test]
+fn cancel_with_inflated_open_lot_clamps_level_total() {
+    let mut b = Book::new();
+    let id = b.insert_limit(HpOrder::limit(Side::Buy, 10, 2, 1));
+    // Inflate stored open_lot above level aggregate to hit total_lot < 0 clamp on cancel.
+    b.store_mut().get_mut(id).unwrap().open_lot = 99;
+    assert!(b.cancel(id));
+    assert_eq!(b.best_bid(), None);
 }
 
 #[test]
@@ -154,7 +238,8 @@ fn fill_order_overfill_clamps_defensive_totals() {
 fn level_pool_stops_recycling_after_cap() {
     let mut b = Book::new();
     let mut ids = Vec::new();
-    for i in 0..300 {
+    // LEVEL_POOL_CAP is 256; a few past cap exercises the discard path.
+    for i in 0..260 {
         ids.push(b.insert_limit(HpOrder::limit(Side::Buy, 10_000 + i as i64, 1, i as u64)));
     }
     for id in ids {
@@ -172,8 +257,13 @@ fn order_store_contains_and_reuses_free_list() {
     let id1 = s.insert(HpOrder::limit(Side::Buy, 1, 1, 1));
     assert!(s.contains(id1));
     assert!(!s.contains(999));
+    assert!(!s.contains(0));
+    assert!(s.get(0).is_none());
+    assert!(s.get_mut(0).is_none());
+    assert!(s.remove(0).is_none());
     s.remove(id1);
     assert!(!s.contains(id1));
+    assert!(s.get(id1).is_none()); // free slot
     let id2 = s.insert(HpOrder::limit(Side::Sell, 2, 2, 2));
     assert_eq!(id2, id1);
     assert!(s.contains(id2));
@@ -331,6 +421,74 @@ fn taker_exhausted_stops_match_loop() {
     assert!(e.book.best_ask().is_none());
 }
 
-// Unreachable without corrupt book state: `match_*` loops breaking on `front_id == None`
-// while `best_*` is `Some`, and `Book::remove_from_level` when the level index entry is missing.
-// `HpWorker::poll(..., None)` never breaks on idle and is not exercised in tests.
+/// Empty FIFO while `best_ask` is set — must run as an integration test so the same
+/// crate instantiation used by other integration binaries also covers the `front_id`
+/// `None` arm (unit-test coverage alone leaves that arm missed in llvm-cov merge).
+#[cfg(coverage)]
+#[test]
+fn match_buy_breaks_on_empty_fifo_at_best() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    });
+    e.book.test_clear_best_ask_fifo();
+    let ev = e.on_order(HpCommand::Market {
+        side: Side::Buy,
+        qty_lot: 1,
+        ts: 2,
+        max_levels: None,
+        client_id: 2,
+    });
+    assert!(ev.is_empty());
+}
+
+#[cfg(coverage)]
+#[test]
+fn match_sell_breaks_on_empty_fifo_at_best() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Buy,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    });
+    e.book.test_clear_best_bid_fifo();
+    let ev = e.on_order(HpCommand::Market {
+        side: Side::Sell,
+        qty_lot: 1,
+        ts: 2,
+        max_levels: None,
+        client_id: 2,
+    });
+    assert!(ev.is_empty());
+}
+
+#[cfg(coverage)]
+#[test]
+fn match_buy_missing_maker_in_store_uses_zero_open() {
+    let mut e = HpEngine::new();
+    e.on_order(HpCommand::Limit {
+        side: Side::Sell,
+        price_tick: 100,
+        qty_lot: 1,
+        ts: 1,
+        client_id: 1,
+    });
+    e.book.test_set_best_ask_front(u64::MAX);
+    let ev = e.on_order(HpCommand::Market {
+        side: Side::Buy,
+        qty_lot: 1,
+        ts: 2,
+        max_levels: None,
+        client_id: 2,
+    });
+    assert!(ev.is_empty());
+}
+
+// Still unreachable without further hooks: `Book::remove_from_level` when the level
+// index entry is missing. `HpWorker::poll(..., None)` never breaks on idle.

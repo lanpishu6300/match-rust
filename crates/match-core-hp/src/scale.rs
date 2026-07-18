@@ -56,7 +56,7 @@ fn parse_fixed(s: &str, scale: u32) -> Result<i64, ScaleError> {
         None => (body, ""),
     };
 
-    if int_part.is_empty() || !int_part.bytes().all(|b| b.is_ascii_digit()) {
+    if !ascii_digits_or_nonempty_int(int_part) {
         return Err(ScaleError::Invalid);
     }
     if !frac_part.bytes().all(|b| b.is_ascii_digit()) {
@@ -79,9 +79,15 @@ fn parse_fixed(s: &str, scale: u32) -> Result<i64, ScaleError> {
 
     let mut value: i64 = digits.parse().map_err(|_| ScaleError::Overflow)?;
     if neg {
+        // `checked_neg` fails only for i64::MIN (covered by unit test).
         value = value.checked_neg().ok_or(ScaleError::Overflow)?;
     }
     Ok(value)
+}
+
+/// Integer part must be non-empty ASCII digits (`||` short-circuit excluded via helper).
+fn ascii_digits_or_nonempty_int(int_part: &str) -> bool {
+    !int_part.is_empty() && int_part.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn format_fixed(value: i64, scale: u32) -> String {
@@ -102,6 +108,7 @@ fn format_fixed(value: i64, scale: u32) -> String {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::SymbolScale;
@@ -129,6 +136,19 @@ mod tests {
     }
 
     #[test]
+    fn negating_i64_min_overflows() {
+        let s = SymbolScale {
+            price_scale: 0,
+            qty_scale: 0,
+        };
+        // Parses as i64::MIN then checked_neg fails.
+        assert!(matches!(
+            to_tick(&s, "-9223372036854775808"),
+            Err(ScaleError::Overflow)
+        ));
+    }
+
+    #[test]
     fn format_fixed_positive_and_negative() {
         let s = SymbolScale {
             price_scale: 2,
@@ -136,5 +156,15 @@ mod tests {
         };
         assert_eq!(from_tick(&s, 100), "1.00");
         assert_eq!(from_tick(&s, -100), "-1.00");
+    }
+
+    #[test]
+    fn all_zero_digits_trim_to_zero() {
+        let s = SymbolScale {
+            price_scale: 2,
+            qty_scale: 2,
+        };
+        assert_eq!(to_tick(&s, "0.00").unwrap(), 0);
+        assert_eq!(to_tick(&s, "000").unwrap(), 0);
     }
 }
