@@ -2,7 +2,7 @@
 
 High-performance cryptocurrency **matching engines** in Rust for contract (and spot) paths — dual-track design with a Java-equivalent core and an experimental low-latency core.
 
-Inspired in layout and packaging by [perpetual_exchange / crypto-exchange](https://github.com/lanpishu6300/matching-engine) (C++ R&D), while targeting **Topic/JSON-compatible** cutover against live Java services.
+Inspired in layout and packaging by [perpetual_exchange / crypto-exchange](https://github.com/lanpishu6300/crypto-exchange) (C++ R&D), while targeting **Topic/JSON-compatible** cutover against live Java services. Companion repository to that project.
 
 **License:** [Apache License 2.0](LICENSE)
 
@@ -72,7 +72,7 @@ Inspired in layout and packaging by [perpetual_exchange / crypto-exchange](https
 ### Build & test
 
 ```bash
-git clone <your-fork-or-remote>/match-rust.git
+git clone https://github.com/lanpishu6300/match-rust.git
 cd match-rust
 cargo test --workspace
 
