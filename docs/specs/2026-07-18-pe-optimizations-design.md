@@ -27,7 +27,7 @@
 
 ## 1. Background and Goals
 
-`perpetual_exchange` (`crypto-exchange`) offers an optimization narrative around memory pools, ART, SIMD, async persistence, etc.; `match-core-hp` already has fixed-point, price-level book, SPSC, false-sharing isolation, and more. This design lands the **borrowable and verifiable** parts layer by layer, avoiding treating a few more L1 nanoseconds as an end-to-end win (see `match-rust/docs/e2e-budget.md`).
+`perpetual_exchange` (`crypto-exchange`) offers an optimization narrative around memory pools, ART, SIMD, async persistence, etc.; `match-core-hp` already has fixed-point, price-level book, SPSC, false-sharing isolation, and more. This design lands the **borrowable and verifiable** parts layer by layer, avoiding treating a few more L1 nanoseconds as an end-to-end win (see `docs/e2e-budget.md`).
 
 ### 1.1 Goals
 
@@ -47,7 +47,7 @@
 ## 2. Architecture Landing Points
 
 ```text
-match-rust/crates/
+crates/
 ├── match-core/          # Equivalence track (unchanged)
 ├── match-core-hp/       # Phase A: LevelIndex / best_* / level pool / feature art
 ├── match-bench/         # fair_compare + art on/off comparison
@@ -132,7 +132,7 @@ Instrument the single-order path (`Instant` or tracing span):
 | `L2_queue` | Enqueue → worker dequeue |
 | `L1_on_order` | `HpEngine::on_order` |
 
-Results backfill the measured columns in `match-rust/docs/e2e-budget.md` (template already exists).
+Results backfill the measured columns in `docs/e2e-budget.md` (template already exists).
 
 ### 4.3 Acceptance (B)
 
@@ -181,10 +181,10 @@ Match thread --append(record)--> lock-free/SPSC buffer --background thread--> ba
 
 ## 7. Docs and Benchmark Updates
 
-- `match-rust/docs/best-practices.md`: add perpetual_exchange → this-repo mapping rows.  
-- `match-rust/docs/bench-results.md`: after A, append cache/art numbers.  
-- `match-rust/docs/e2e-budget.md`: after B, fill measured values.  
-- `match-rust/docs/fair-compare.md`: note art feature comparison usage.
+- `docs/best-practices.md`: add perpetual_exchange → this-repo mapping rows.  
+- `docs/bench-results.md`: after A, append cache/art numbers.  
+- `docs/e2e-budget.md`: after B, fill measured values.  
+- `docs/fair-compare.md`: note art feature comparison usage.
 
 ---
 

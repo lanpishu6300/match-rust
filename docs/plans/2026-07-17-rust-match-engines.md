@@ -24,13 +24,13 @@
 
 | Path | Responsibility |
 |------|----------------|
-| `match-rust/Cargo.toml` | Workspace members + shared deps |
-| `match-rust/crates/match-protocol/` | `MqOrder`, constants, `check_mq_order`, `type_convert`, `encode_symbol_key`, JSON parse |
-| `match-rust/crates/match-core/` | `OrderBook`, `Engine`, limit/market/height/fok match, depth snapshot, `MatchEvent` |
-| `match-rust/crates/match-replay/` | CLI + library: run input → `GoldenTrace` diff |
-| `match-rust/crates/match-contract/` | Binary: config, bootstrap, Redis, HTTP restore, RMQ in/out, metrics, health |
-| `match-rust/crates/match-spot/` | Stub crate (`lib.rs` empty module) for workspace completeness |
-| `match-rust/testdata/golden/` | Checked-in `*.ndjson` golden traces |
+| `Cargo.toml` | Workspace members + shared deps |
+| `crates/match-protocol/` | `MqOrder`, constants, `check_mq_order`, `type_convert`, `encode_symbol_key`, JSON parse |
+| `crates/match-core/` | `OrderBook`, `Engine`, limit/market/height/fok match, depth snapshot, `MatchEvent` |
+| `crates/match-replay/` | CLI + library: run input → `GoldenTrace` diff |
+| `crates/match-contract/` | Binary: config, bootstrap, Redis, HTTP restore, RMQ in/out, metrics, health |
+| `crates/match-spot/` | Stub crate (`lib.rs` empty module) for workspace completeness |
+| `testdata/golden/` | Checked-in `*.ndjson` golden traces |
 | `java-contract-match/.../test/.../GoldenTraceExporterTest.java` (or `tools/java-golden/`) | Java-side exporter producing golden files |
 
 **Closed open items from spec:**
@@ -45,18 +45,18 @@
 ### Task 1: Workspace scaffold
 
 **Files:**
-- Create: `match-rust/Cargo.toml`
-- Create: `match-rust/crates/match-protocol/Cargo.toml`
-- Create: `match-rust/crates/match-protocol/src/lib.rs`
-- Create: `match-rust/crates/match-core/Cargo.toml`
-- Create: `match-rust/crates/match-core/src/lib.rs`
-- Create: `match-rust/crates/match-replay/Cargo.toml`
-- Create: `match-rust/crates/match-replay/src/lib.rs`
-- Create: `match-rust/crates/match-contract/Cargo.toml`
-- Create: `match-rust/crates/match-contract/src/main.rs`
-- Create: `match-rust/crates/match-spot/Cargo.toml`
-- Create: `match-rust/crates/match-spot/src/lib.rs`
-- Create: `match-rust/README.md`
+- Create: `Cargo.toml`
+- Create: `crates/match-protocol/Cargo.toml`
+- Create: `crates/match-protocol/src/lib.rs`
+- Create: `crates/match-core/Cargo.toml`
+- Create: `crates/match-core/src/lib.rs`
+- Create: `crates/match-replay/Cargo.toml`
+- Create: `crates/match-replay/src/lib.rs`
+- Create: `crates/match-contract/Cargo.toml`
+- Create: `crates/match-contract/src/main.rs`
+- Create: `crates/match-spot/Cargo.toml`
+- Create: `crates/match-spot/src/lib.rs`
+- Create: `README.md`
 
 - [ ] **Step 1: Create workspace root**
 
@@ -172,14 +172,14 @@ EOF
 ### Task 2: Protocol constants, MqOrder, validation, type_convert
 
 **Files:**
-- Create: `match-rust/crates/match-protocol/src/constants.rs`
-- Create: `match-rust/crates/match-protocol/src/mq_order.rs`
-- Create: `match-rust/crates/match-protocol/src/order.rs`
-- Create: `match-rust/crates/match-protocol/src/validate.rs`
-- Create: `match-rust/crates/match-protocol/src/convert.rs`
-- Create: `match-rust/crates/match-protocol/src/encode.rs`
-- Modify: `match-rust/crates/match-protocol/src/lib.rs`
-- Create: `match-rust/crates/match-protocol/tests/validate_convert.rs`
+- Create: `crates/match-protocol/src/constants.rs`
+- Create: `crates/match-protocol/src/mq_order.rs`
+- Create: `crates/match-protocol/src/order.rs`
+- Create: `crates/match-protocol/src/validate.rs`
+- Create: `crates/match-protocol/src/convert.rs`
+- Create: `crates/match-protocol/src/encode.rs`
+- Modify: `crates/match-protocol/src/lib.rs`
+- Create: `crates/match-protocol/tests/validate_convert.rs`
 
 **Java reference:** `Constants.java`, `BBConstants.checkMqOrder` / `typeConvert`, `CoinMarketEncode.encodeSymbolKey`
 
@@ -272,7 +272,7 @@ Run: `cargo test -p match-protocol --test validate_convert`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add match-rust/crates/match-protocol
+git add crates/match-protocol
 git commit -m "$(cat <<'EOF'
 feat(match-protocol): add MqOrder validation and type_convert
 
@@ -285,10 +285,10 @@ EOF
 ### Task 3: Order book (price-time priority)
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/book.rs`
-- Create: `match-rust/crates/match-core/src/order.rs` (engine-owned `BbOrder` wrapping/re-exporting protocol order)
-- Modify: `match-rust/crates/match-core/src/lib.rs`
-- Create: `match-rust/crates/match-core/tests/order_book_order.rs`
+- Create: `crates/match-core/src/book.rs`
+- Create: `crates/match-core/src/order.rs` (engine-owned `BbOrder` wrapping/re-exporting protocol order)
+- Modify: `crates/match-core/src/lib.rs`
+- Create: `crates/match-core/tests/order_book_order.rs`
 
 **Java reference:** `BBOrder.compareTo` (buy high→low, sell low→high; tie `createTime` then `trustOrderNo`)
 
@@ -350,11 +350,11 @@ EOF
 ### Task 4: Engine facade + MatchEvent + L1 harness
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/engine.rs`
-- Create: `match-rust/crates/match-core/src/event.rs`
-- Create: `match-rust/crates/match-core/src/id.rs`
-- Modify: `match-rust/crates/match-core/src/lib.rs`
-- Create: `match-rust/crates/match-core/tests/l1_limit_cross.rs`
+- Create: `crates/match-core/src/engine.rs`
+- Create: `crates/match-core/src/event.rs`
+- Create: `crates/match-core/src/id.rs`
+- Modify: `crates/match-core/src/lib.rs`
+- Create: `crates/match-core/tests/l1_limit_cross.rs`
 
 - [ ] **Step 1: Define events**
 
@@ -431,13 +431,13 @@ EOF
 ### Task 5: Limit match — RatherThan / Equals / LessThan + Buy/Sell loops
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/match_limit.rs`
-- Create: `match-rust/crates/match-core/src/handlers/buy.rs`
-- Create: `match-rust/crates/match-core/src/handlers/sell.rs`
-- Create: `match-rust/crates/match-core/src/handlers/mod.rs`
-- Create: `match-rust/crates/match-core/src/price_utils.rs`
-- Modify: `match-rust/crates/match-core/src/engine.rs`
-- Create: `match-rust/crates/match-core/tests/l1_limit_fill.rs`
+- Create: `crates/match-core/src/match_limit.rs`
+- Create: `crates/match-core/src/handlers/buy.rs`
+- Create: `crates/match-core/src/handlers/sell.rs`
+- Create: `crates/match-core/src/handlers/mod.rs`
+- Create: `crates/match-core/src/price_utils.rs`
+- Modify: `crates/match-core/src/engine.rs`
+- Create: `crates/match-core/tests/l1_limit_fill.rs`
 
 **Java reference (port control flow 1:1):**
 - `RatherThanHandler.java`, `EqualsHandler.java`, `LessThanHandler.java`
@@ -506,9 +506,9 @@ EOF
 ### Task 6: Market orders + gear revoke
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/handlers/market.rs`
-- Modify: `match-rust/crates/match-core/src/handlers/buy.rs` / `sell.rs`
-- Create: `match-rust/crates/match-core/tests/l1_market_gear.rs`
+- Create: `crates/match-core/src/handlers/market.rs`
+- Modify: `crates/match-core/src/handlers/buy.rs` / `sell.rs`
+- Create: `crates/match-core/tests/l1_market_gear.rs`
 
 **Java reference:** `MarketBuyHandler.java`, market branches in `BuyHandler`/`SellHandler` (gear stop; **preserve** P0-1/P0-3 behaviors from known-issues doc)
 
@@ -549,11 +549,11 @@ EOF
 ### Task 7: PostOnly / IOC / FOK
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/handlers/height_buy.rs`
-- Create: `match-rust/crates/match-core/src/handlers/height_sell.rs`
-- Create: `match-rust/crates/match-core/src/handlers/fok_buy.rs`
-- Create: `match-rust/crates/match-core/src/handlers/fok_sell.rs`
-- Create: `match-rust/crates/match-core/tests/l1_advanced.rs`
+- Create: `crates/match-core/src/handlers/height_buy.rs`
+- Create: `crates/match-core/src/handlers/height_sell.rs`
+- Create: `crates/match-core/src/handlers/fok_buy.rs`
+- Create: `crates/match-core/src/handlers/fok_sell.rs`
+- Create: `crates/match-core/tests/l1_advanced.rs`
 
 **Java reference:** `HeightBuyHandler.java`, `HeightSellHandler.java`, `FokBuyHandler.java`, `FokSellHandler.java`, `EventOrderHandler` routing
 
@@ -585,8 +585,8 @@ EOF
 ### Task 8: Depth / no-deal snapshot builder
 
 **Files:**
-- Create: `match-rust/crates/match-core/src/depth.rs`
-- Create: `match-rust/crates/match-core/tests/l1_depth.rs`
+- Create: `crates/match-core/src/depth.rs`
+- Create: `crates/match-core/tests/l1_depth.rs`
 
 **Java reference:** `NoDealProducer` / depth aggregation (`NO_DEAL_NUMBER=20`), `DepthMapProducer` (`DEEPS_NUMBER`), price aggregation rules
 
@@ -621,10 +621,10 @@ EOF
 ### Task 9: GoldenTrace format + match-replay + Java exporter
 
 **Files:**
-- Create: `match-rust/crates/match-replay/src/trace.rs`
-- Create: `match-rust/crates/match-replay/src/diff.rs`
-- Create: `match-rust/crates/match-replay/src/main.rs`
-- Create: `match-rust/testdata/golden/limit_cross.ndjson` (generated)
+- Create: `crates/match-replay/src/trace.rs`
+- Create: `crates/match-replay/src/diff.rs`
+- Create: `crates/match-replay/src/main.rs`
+- Create: `testdata/golden/limit_cross.ndjson` (generated)
 - Create: `java-contract-match/contract-match-provider/src/test/java/com/example/match/golden/GoldenTraceExporterTest.java`
 - Create: `java-contract-match/contract-match-provider/src/test/java/com/example/match/golden/GoldenTraceWriter.java`
 
@@ -642,7 +642,7 @@ Compare numerically for decimals; ignore JSON key order.
 
 - [ ] **Step 2: Java exporter test**
 
-In-process: build `TreeSet` books / call handlers with constructed `BBOrder` list (same scenarios as L1). Write NDJSON under `match-rust/testdata/golden/`.
+In-process: build `TreeSet` books / call handlers with constructed `BBOrder` list (same scenarios as L1). Write NDJSON under `testdata/golden/`.
 
 Run (from `java-contract-match` module):
 `mvn -pl contract-match-provider -Dtest=GoldenTraceExporterTest test`
@@ -661,7 +661,7 @@ Exit code 0 on match, 1 on mismatch with printed diff.
 - [ ] **Step 4: Commit golden + replay**
 
 ```bash
-git add match-rust/crates/match-replay match-rust/testdata \
+git add crates/match-replay match-rust/testdata \
   java-contract-match/contract-match-provider/src/test/java/com/example/match/golden
 git commit -m "$(cat <<'EOF'
 feat(match-replay): golden NDJSON format and Java exporter harness
@@ -679,12 +679,12 @@ Export and pass replay for: limit cross, partial fill, market+gear, postonly, io
 ### Task 10: match-contract config + HTTP restore clients
 
 **Files:**
-- Create: `match-rust/crates/match-contract/src/config.rs`
-- Create: `match-rust/crates/match-contract/src/rpc/market.rs`
-- Create: `match-rust/crates/match-contract/src/rpc/order.rs`
-- Create: `match-rust/crates/match-contract/src/rpc/mod.rs`
-- Create: `match-rust/crates/match-contract/config.example.yaml`
-- Create: `match-rust/crates/match-contract/tests/rpc_urls.rs`
+- Create: `crates/match-contract/src/config.rs`
+- Create: `crates/match-contract/src/rpc/market.rs`
+- Create: `crates/match-contract/src/rpc/order.rs`
+- Create: `crates/match-contract/src/rpc/mod.rs`
+- Create: `crates/match-contract/config.example.yaml`
+- Create: `crates/match-contract/tests/rpc_urls.rs`
 
 **HTTP paths (from Feign APIs):**
 - Market: `POST {market_base_url}/contract-market/contractcoinMarketList` → list VO with `coinMarket`, `originCoinMarket`, `mainStream`
@@ -743,8 +743,8 @@ EOF
 ### Task 11: Redis keys + error queue
 
 **Files:**
-- Create: `match-rust/crates/match-contract/src/redis_store.rs`
-- Create: `match-rust/crates/match-contract/src/error_queue.rs`
+- Create: `crates/match-contract/src/redis_store.rs`
+- Create: `crates/match-contract/src/error_queue.rs`
 
 **Keys (parity):**
 - Match link: prefix + `redis_poc_link_list_key{symbol}` (same RedisKeyPrefixEnum behavior as Java — confirm prefix string from `RedisKey` / `RedisKeyPrefixEnum` in java-cache; copy exact key format in implementation by reading Java `RedisKey.toString()` usage).
@@ -772,14 +772,14 @@ EOF
 ### Task 12: Bootstrap + per-symbol workers + RocketMQ in/out
 
 **Files:**
-- Create: `match-rust/crates/match-contract/src/bootstrap.rs`
-- Create: `match-rust/crates/match-contract/src/symbol_worker.rs`
-- Create: `match-rust/crates/match-contract/src/mq/consumer.rs`
-- Create: `match-rust/crates/match-contract/src/mq/producer.rs`
-- Create: `match-rust/crates/match-contract/src/mq/topics.rs`
-- Create: `match-rust/crates/match-contract/src/inbound.rs`
-- Create: `match-rust/crates/match-contract/src/outbound.rs`
-- Modify: `match-rust/crates/match-contract/src/main.rs`
+- Create: `crates/match-contract/src/bootstrap.rs`
+- Create: `crates/match-contract/src/symbol_worker.rs`
+- Create: `crates/match-contract/src/mq/consumer.rs`
+- Create: `crates/match-contract/src/mq/producer.rs`
+- Create: `crates/match-contract/src/mq/topics.rs`
+- Create: `crates/match-contract/src/inbound.rs`
+- Create: `crates/match-contract/src/outbound.rs`
+- Modify: `crates/match-contract/src/main.rs`
 
 **Topics constants:**
 ```rust
@@ -842,8 +842,8 @@ EOF
 ### Task 13: Metrics + health HTTP
 
 **Files:**
-- Create: `match-rust/crates/match-contract/src/telemetry.rs`
-- Create: `match-rust/crates/match-contract/src/health.rs`
+- Create: `crates/match-contract/src/telemetry.rs`
+- Create: `crates/match-contract/src/health.rs`
 - Reference: `java-contract-match/docs/opentelemetry-metrics.md`
 
 - [ ] **Step 1: Expose `/healthz` (process up) and `/readyz` (bootstrap finished)**
@@ -867,9 +867,9 @@ EOF
 ### Task 14: L3 shadow + grey cutover runbook
 
 **Files:**
-- Create: `match-rust/docs/cutover-runbook.md`
-- Create: `match-rust/docs/l3-shadow.md`
-- Modify: `match-rust/README.md`
+- Create: `docs/cutover-runbook.md`
+- Create: `docs/l3-shadow.md`
+- Modify: `README.md`
 
 - [ ] **Step 1: Document L3 modes**
 

@@ -33,8 +33,8 @@
 ### Task 1: Best-price cache
 
 **Files:**
-- Modify: `match-rust/crates/match-core-hp/src/book.rs`
-- Create: `match-rust/crates/match-core-hp/tests/best_price_cache.rs`
+- Modify: `crates/match-core-hp/src/book.rs`
+- Create: `crates/match-core-hp/tests/best_price_cache.rs`
 
 - [ ] **Step 1: Failing tests** — cancel/fill emptying best level updates `best_*`; insert better price updates cache.
 

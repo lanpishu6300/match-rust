@@ -24,13 +24,13 @@
 
 | 路径 | 职责 |
 |------|----------------|
-| `match-rust/Cargo.toml` | Workspace members + 共享依赖 |
-| `match-rust/crates/match-protocol/` | `MqOrder`、常量、`check_mq_order`、`type_convert`、`encode_symbol_key`、JSON 解析 |
-| `match-rust/crates/match-core/` | `OrderBook`、`Engine`、限价/市价/高级/FOK 撮合、深度快照、`MatchEvent` |
-| `match-rust/crates/match-replay/` | CLI + 库：跑输入 → `GoldenTrace` diff |
-| `match-rust/crates/match-contract/` | 二进制：配置、bootstrap、Redis、HTTP 恢复、RMQ 进/出、指标、健康检查 |
-| `match-rust/crates/match-spot/` | 占位 crate（`lib.rs` 空模块），保证 workspace 完整 |
-| `match-rust/testdata/golden/` | 入库的 `*.ndjson` 黄金轨迹 |
+| `Cargo.toml` | Workspace members + 共享依赖 |
+| `crates/match-protocol/` | `MqOrder`、常量、`check_mq_order`、`type_convert`、`encode_symbol_key`、JSON 解析 |
+| `crates/match-core/` | `OrderBook`、`Engine`、限价/市价/高级/FOK 撮合、深度快照、`MatchEvent` |
+| `crates/match-replay/` | CLI + 库：跑输入 → `GoldenTrace` diff |
+| `crates/match-contract/` | 二进制：配置、bootstrap、Redis、HTTP 恢复、RMQ 进/出、指标、健康检查 |
+| `crates/match-spot/` | 占位 crate（`lib.rs` 空模块），保证 workspace 完整 |
+| `testdata/golden/` | 入库的 `*.ndjson` 黄金轨迹 |
 | `java-contract-match/.../test/.../GoldenTraceExporterTest.java`（或 `tools/java-golden/`） | Java 侧导出器，生成黄金文件 |
 
 **规格中已关闭的开放项：**
@@ -45,18 +45,18 @@
 ### Task 1: Workspace 脚手架
 
 **文件：**
-- 创建：`match-rust/Cargo.toml`
-- 创建：`match-rust/crates/match-protocol/Cargo.toml`
-- 创建：`match-rust/crates/match-protocol/src/lib.rs`
-- 创建：`match-rust/crates/match-core/Cargo.toml`
-- 创建：`match-rust/crates/match-core/src/lib.rs`
-- 创建：`match-rust/crates/match-replay/Cargo.toml`
-- 创建：`match-rust/crates/match-replay/src/lib.rs`
-- 创建：`match-rust/crates/match-contract/Cargo.toml`
-- 创建：`match-rust/crates/match-contract/src/main.rs`
-- 创建：`match-rust/crates/match-spot/Cargo.toml`
-- 创建：`match-rust/crates/match-spot/src/lib.rs`
-- 创建：`match-rust/README.md`
+- 创建：`Cargo.toml`
+- 创建：`crates/match-protocol/Cargo.toml`
+- 创建：`crates/match-protocol/src/lib.rs`
+- 创建：`crates/match-core/Cargo.toml`
+- 创建：`crates/match-core/src/lib.rs`
+- 创建：`crates/match-replay/Cargo.toml`
+- 创建：`crates/match-replay/src/lib.rs`
+- 创建：`crates/match-contract/Cargo.toml`
+- 创建：`crates/match-contract/src/main.rs`
+- 创建：`crates/match-spot/Cargo.toml`
+- 创建：`crates/match-spot/src/lib.rs`
+- 创建：`README.md`
 
 - [ ] **Step 1: 创建 workspace 根**
 
@@ -172,14 +172,14 @@ EOF
 ### Task 2: 协议常量、MqOrder、校验、type_convert
 
 **文件：**
-- 创建：`match-rust/crates/match-protocol/src/constants.rs`
-- 创建：`match-rust/crates/match-protocol/src/mq_order.rs`
-- 创建：`match-rust/crates/match-protocol/src/order.rs`
-- 创建：`match-rust/crates/match-protocol/src/validate.rs`
-- 创建：`match-rust/crates/match-protocol/src/convert.rs`
-- 创建：`match-rust/crates/match-protocol/src/encode.rs`
-- 修改：`match-rust/crates/match-protocol/src/lib.rs`
-- 创建：`match-rust/crates/match-protocol/tests/validate_convert.rs`
+- 创建：`crates/match-protocol/src/constants.rs`
+- 创建：`crates/match-protocol/src/mq_order.rs`
+- 创建：`crates/match-protocol/src/order.rs`
+- 创建：`crates/match-protocol/src/validate.rs`
+- 创建：`crates/match-protocol/src/convert.rs`
+- 创建：`crates/match-protocol/src/encode.rs`
+- 修改：`crates/match-protocol/src/lib.rs`
+- 创建：`crates/match-protocol/tests/validate_convert.rs`
 
 **Java 参考：** `Constants.java`、`BBConstants.checkMqOrder` / `typeConvert`、`CoinMarketEncode.encodeSymbolKey`
 
@@ -272,7 +272,7 @@ fn encode_symbol_key_ascii_passthrough() {
 - [ ] **Step 5: 提交**
 
 ```bash
-git add match-rust/crates/match-protocol
+git add crates/match-protocol
 git commit -m "$(cat <<'EOF'
 feat(match-protocol): add MqOrder validation and type_convert
 
@@ -285,10 +285,10 @@ EOF
 ### Task 3: 订单簿（价时优先）
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/book.rs`
-- 创建：`match-rust/crates/match-core/src/order.rs`（引擎侧 `BbOrder`，包装/再导出协议订单）
-- 修改：`match-rust/crates/match-core/src/lib.rs`
-- 创建：`match-rust/crates/match-core/tests/order_book_order.rs`
+- 创建：`crates/match-core/src/book.rs`
+- 创建：`crates/match-core/src/order.rs`（引擎侧 `BbOrder`，包装/再导出协议订单）
+- 修改：`crates/match-core/src/lib.rs`
+- 创建：`crates/match-core/tests/order_book_order.rs`
 
 **Java 参考：** `BBOrder.compareTo`（买 高→低，卖 低→高；并列时 `createTime` 再 `trustOrderNo`）
 
@@ -350,11 +350,11 @@ EOF
 ### Task 4: Engine 门面 + MatchEvent + L1 夹具
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/engine.rs`
-- 创建：`match-rust/crates/match-core/src/event.rs`
-- 创建：`match-rust/crates/match-core/src/id.rs`
-- 修改：`match-rust/crates/match-core/src/lib.rs`
-- 创建：`match-rust/crates/match-core/tests/l1_limit_cross.rs`
+- 创建：`crates/match-core/src/engine.rs`
+- 创建：`crates/match-core/src/event.rs`
+- 创建：`crates/match-core/src/id.rs`
+- 修改：`crates/match-core/src/lib.rs`
+- 创建：`crates/match-core/tests/l1_limit_cross.rs`
 
 - [ ] **Step 1: 定义事件**
 
@@ -431,13 +431,13 @@ EOF
 ### Task 5: 限价撮合 — RatherThan / Equals / LessThan + Buy/Sell 循环
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/match_limit.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/buy.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/sell.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/mod.rs`
-- 创建：`match-rust/crates/match-core/src/price_utils.rs`
-- 修改：`match-rust/crates/match-core/src/engine.rs`
-- 创建：`match-rust/crates/match-core/tests/l1_limit_fill.rs`
+- 创建：`crates/match-core/src/match_limit.rs`
+- 创建：`crates/match-core/src/handlers/buy.rs`
+- 创建：`crates/match-core/src/handlers/sell.rs`
+- 创建：`crates/match-core/src/handlers/mod.rs`
+- 创建：`crates/match-core/src/price_utils.rs`
+- 修改：`crates/match-core/src/engine.rs`
+- 创建：`crates/match-core/tests/l1_limit_fill.rs`
 
 **Java 参考（控制流 1:1 移植）：**
 - `RatherThanHandler.java`、`EqualsHandler.java`、`LessThanHandler.java`
@@ -506,9 +506,9 @@ EOF
 ### Task 6: 市价单 + 档位撤单
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/handlers/market.rs`
-- 修改：`match-rust/crates/match-core/src/handlers/buy.rs` / `sell.rs`
-- 创建：`match-rust/crates/match-core/tests/l1_market_gear.rs`
+- 创建：`crates/match-core/src/handlers/market.rs`
+- 修改：`crates/match-core/src/handlers/buy.rs` / `sell.rs`
+- 创建：`crates/match-core/tests/l1_market_gear.rs`
 
 **Java 参考：** `MarketBuyHandler.java`、`BuyHandler`/`SellHandler` 中的市价分支（档位停止；**保留**已知问题文档中的 P0-1/P0-3 行为）
 
@@ -549,11 +549,11 @@ EOF
 ### Task 7: PostOnly / IOC / FOK
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/handlers/height_buy.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/height_sell.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/fok_buy.rs`
-- 创建：`match-rust/crates/match-core/src/handlers/fok_sell.rs`
-- 创建：`match-rust/crates/match-core/tests/l1_advanced.rs`
+- 创建：`crates/match-core/src/handlers/height_buy.rs`
+- 创建：`crates/match-core/src/handlers/height_sell.rs`
+- 创建：`crates/match-core/src/handlers/fok_buy.rs`
+- 创建：`crates/match-core/src/handlers/fok_sell.rs`
+- 创建：`crates/match-core/tests/l1_advanced.rs`
 
 **Java 参考：** `HeightBuyHandler.java`、`HeightSellHandler.java`、`FokBuyHandler.java`、`FokSellHandler.java`、`EventOrderHandler` 路由
 
@@ -585,8 +585,8 @@ EOF
 ### Task 8: 深度 / 未成交快照构建
 
 **文件：**
-- 创建：`match-rust/crates/match-core/src/depth.rs`
-- 创建：`match-rust/crates/match-core/tests/l1_depth.rs`
+- 创建：`crates/match-core/src/depth.rs`
+- 创建：`crates/match-core/tests/l1_depth.rs`
 
 **Java 参考：** `NoDealProducer` / 深度聚合（`NO_DEAL_NUMBER=20`）、`DepthMapProducer`（`DEEPS_NUMBER`）、价格聚合规则
 
@@ -621,10 +621,10 @@ EOF
 ### Task 9: GoldenTrace 格式 + match-replay + Java 导出器
 
 **文件：**
-- 创建：`match-rust/crates/match-replay/src/trace.rs`
-- 创建：`match-rust/crates/match-replay/src/diff.rs`
-- 创建：`match-rust/crates/match-replay/src/main.rs`
-- 创建：`match-rust/testdata/golden/limit_cross.ndjson`（生成）
+- 创建：`crates/match-replay/src/trace.rs`
+- 创建：`crates/match-replay/src/diff.rs`
+- 创建：`crates/match-replay/src/main.rs`
+- 创建：`testdata/golden/limit_cross.ndjson`（生成）
 - 创建：`java-contract-match/contract-match-provider/src/test/java/com/example/match/golden/GoldenTraceExporterTest.java`
 - 创建：`java-contract-match/contract-match-provider/src/test/java/com/example/match/golden/GoldenTraceWriter.java`
 
@@ -642,7 +642,7 @@ EOF
 
 - [ ] **Step 2: Java 导出器测试**
 
-进程内：建 `TreeSet` 簿 / 用构造的 `BBOrder` 列表调 handler（场景同 L1）。将 NDJSON 写到 `match-rust/testdata/golden/`。
+进程内：建 `TreeSet` 簿 / 用构造的 `BBOrder` 列表调 handler（场景同 L1）。将 NDJSON 写到 `testdata/golden/`。
 
 运行（在 `java-contract-match` 模块下）：
 `mvn -pl contract-match-provider -Dtest=GoldenTraceExporterTest test`
@@ -661,7 +661,7 @@ cargo run -p match-replay -- --input testdata/golden/limit_cross.ndjson --engine
 - [ ] **Step 4: 提交 golden + replay**
 
 ```bash
-git add match-rust/crates/match-replay match-rust/testdata \
+git add crates/match-replay match-rust/testdata \
   java-contract-match/contract-match-provider/src/test/java/com/example/match/golden
 git commit -m "$(cat <<'EOF'
 feat(match-replay): golden NDJSON format and Java exporter harness
@@ -679,12 +679,12 @@ EOF
 ### Task 10: match-contract 配置 + HTTP 恢复客户端
 
 **文件：**
-- 创建：`match-rust/crates/match-contract/src/config.rs`
-- 创建：`match-rust/crates/match-contract/src/rpc/market.rs`
-- 创建：`match-rust/crates/match-contract/src/rpc/order.rs`
-- 创建：`match-rust/crates/match-contract/src/rpc/mod.rs`
-- 创建：`match-rust/crates/match-contract/config.example.yaml`
-- 创建：`match-rust/crates/match-contract/tests/rpc_urls.rs`
+- 创建：`crates/match-contract/src/config.rs`
+- 创建：`crates/match-contract/src/rpc/market.rs`
+- 创建：`crates/match-contract/src/rpc/order.rs`
+- 创建：`crates/match-contract/src/rpc/mod.rs`
+- 创建：`crates/match-contract/config.example.yaml`
+- 创建：`crates/match-contract/tests/rpc_urls.rs`
 
 **HTTP 路径（来自 Feign API）：**
 - Market：`POST {market_base_url}/contract-market/contractcoinMarketList` → 含 `coinMarket`、`originCoinMarket`、`mainStream` 的 VO 列表
@@ -743,8 +743,8 @@ EOF
 ### Task 11: Redis 键 + 错误队列
 
 **文件：**
-- 创建：`match-rust/crates/match-contract/src/redis_store.rs`
-- 创建：`match-rust/crates/match-contract/src/error_queue.rs`
+- 创建：`crates/match-contract/src/redis_store.rs`
+- 创建：`crates/match-contract/src/error_queue.rs`
 
 **键（对齐）：**
 - 撮合链路：前缀 + `redis_poc_link_list_key{symbol}`（与 Java 相同 RedisKeyPrefixEnum 行为 — 从前缀字符串确认 `RedisKey` / `RedisKeyPrefixEnum` in java-cache；实现时读 Java `RedisKey.toString()` 用法，复制精确键格式）。
@@ -772,14 +772,14 @@ EOF
 ### Task 12: Bootstrap + 按交易对 worker + RocketMQ 进/出
 
 **文件：**
-- 创建：`match-rust/crates/match-contract/src/bootstrap.rs`
-- 创建：`match-rust/crates/match-contract/src/symbol_worker.rs`
-- 创建：`match-rust/crates/match-contract/src/mq/consumer.rs`
-- 创建：`match-rust/crates/match-contract/src/mq/producer.rs`
-- 创建：`match-rust/crates/match-contract/src/mq/topics.rs`
-- 创建：`match-rust/crates/match-contract/src/inbound.rs`
-- 创建：`match-rust/crates/match-contract/src/outbound.rs`
-- 修改：`match-rust/crates/match-contract/src/main.rs`
+- 创建：`crates/match-contract/src/bootstrap.rs`
+- 创建：`crates/match-contract/src/symbol_worker.rs`
+- 创建：`crates/match-contract/src/mq/consumer.rs`
+- 创建：`crates/match-contract/src/mq/producer.rs`
+- 创建：`crates/match-contract/src/mq/topics.rs`
+- 创建：`crates/match-contract/src/inbound.rs`
+- 创建：`crates/match-contract/src/outbound.rs`
+- 修改：`crates/match-contract/src/main.rs`
 
 **Topic 常量：**
 ```rust
@@ -842,8 +842,8 @@ EOF
 ### Task 13: 指标 + 健康 HTTP
 
 **文件：**
-- 创建：`match-rust/crates/match-contract/src/telemetry.rs`
-- 创建：`match-rust/crates/match-contract/src/health.rs`
+- 创建：`crates/match-contract/src/telemetry.rs`
+- 创建：`crates/match-contract/src/health.rs`
 - 参考：`java-contract-match/docs/opentelemetry-metrics.md`
 
 - [ ] **Step 1: 暴露 `/healthz`（进程存活）与 `/readyz`（bootstrap 完成）**
@@ -867,9 +867,9 @@ EOF
 ### Task 14: L3 影子 + 灰度切换 runbook
 
 **文件：**
-- 创建：`match-rust/docs/cutover-runbook.md`
-- 创建：`match-rust/docs/l3-shadow.md`
-- 修改：`match-rust/README.md`
+- 创建：`docs/cutover-runbook.md`
+- 创建：`docs/l3-shadow.md`
+- 修改：`README.md`
 
 - [ ] **Step 1: 文档化 L3 模式**
 

@@ -43,7 +43,7 @@
 ## 2. 架构与 crate 边界
 
 ```text
-match-rust/crates/
+crates/
 ├── match-core/       # 等价轨（冻结行为，生产默认）
 ├── match-core-hp/    # 新增：高性能撮核
 ├── match-bench/      # 新增：criterion / 对比基准
@@ -146,7 +146,7 @@ orders: generational / 预分配 slot 数组（id → HpOrder）
 - 延迟：单次 `on_order` 的 p50 / p99 / p999（排除 MQ）  
 - 可选：热路径堆分配抽样  
 
-结果写入 `match-rust/docs/bench-results.md`（或 CI artifact）。
+结果写入 `docs/bench-results.md`（或 CI artifact）。
 
 ### 4.3 验收
 
@@ -201,4 +201,4 @@ orders: generational / 预分配 slot 数组（id → HpOrder）
 
 ## 7. OSS 最佳实践索引（落地后）
 
-完整映射见仓库内 [`match-rust/docs/best-practices.md`](../../../match-rust/docs/best-practices.md)（Disruptor / Aeron / Seastar / 撮核通识 → 模块路径与启用方式）。
+完整映射见仓库内 [`docs/best-practices.md`](../best-practices.md)（Disruptor / Aeron / Seastar / 撮核通识 → 模块路径与启用方式）。

@@ -4,7 +4,7 @@ start_queue_ttl_ms: 720000
 depth_push_interval_ms: 50
 symbol_workers: 30
 health:
-  port: 31015  # mirrors Java java-contract-match server.port
+  port: 31015  # mirrors Java reference server.port
   enabled: true
 rocketmq:
   name_server: "192.168.0.241:9876"

@@ -33,8 +33,8 @@
 ### Task 1: 最优价缓存
 
 **文件：**
-- 修改：`match-rust/crates/match-core-hp/src/book.rs`
-- 创建：`match-rust/crates/match-core-hp/tests/best_price_cache.rs`
+- 修改：`crates/match-core-hp/src/book.rs`
+- 创建：`crates/match-core-hp/tests/best_price_cache.rs`
 
 - [ ] **Step 1: 会失败的测试** — 撤单/成交清空最优档时更新 `best_*`；插入更优价格时更新缓存。
 

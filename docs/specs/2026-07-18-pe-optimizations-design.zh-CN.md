@@ -27,7 +27,7 @@
 
 ## 1. 背景与目标
 
-`perpetual_exchange`（`crypto-exchange`）提供了内存池、ART、SIMD、异步落盘等优化叙事；`match-core-hp` 已具备定点、价位簿、SPSC、伪共享隔离等。本设计把**可借鉴且可验证**的部分按层落地，避免把 L1 再抠几个 ns 当成端到端胜利（见 `match-rust/docs/e2e-budget.md`）。
+`perpetual_exchange`（`crypto-exchange`）提供了内存池、ART、SIMD、异步落盘等优化叙事；`match-core-hp` 已具备定点、价位簿、SPSC、伪共享隔离等。本设计把**可借鉴且可验证**的部分按层落地，避免把 L1 再抠几个 ns 当成端到端胜利（见 `docs/e2e-budget.md`）。
 
 ### 1.1 目标
 
@@ -47,7 +47,7 @@
 ## 2. 架构落点
 
 ```text
-match-rust/crates/
+crates/
 ├── match-core/          # 等价轨（不变）
 ├── match-core-hp/       # Phase A：LevelIndex / best_* / level pool / feature art
 ├── match-bench/         # fair_compare + art on/off 对照
@@ -132,7 +132,7 @@ trait LevelIndex {
 | `L2_queue` | 入队→worker 取出 |
 | `L1_on_order` | `HpEngine::on_order` |
 
-结果回填 `match-rust/docs/e2e-budget.md` 实测列（模板已有）。
+结果回填 `docs/e2e-budget.md` 实测列（模板已有）。
 
 ### 4.3 验收（B）
 
@@ -181,10 +181,10 @@ trait LevelIndex {
 
 ## 7. 文档与基准更新
 
-- `match-rust/docs/best-practices.md`：增加 perpetual_exchange → 本仓库映射行。  
-- `match-rust/docs/bench-results.md`：A 完成后追加缓存/art 数字。  
-- `match-rust/docs/e2e-budget.md`：B 完成后填实测。  
-- `match-rust/docs/fair-compare.md`：注明 art feature 对照用法。
+- `docs/best-practices.md`：增加 perpetual_exchange → 本仓库映射行。  
+- `docs/bench-results.md`：A 完成后追加缓存/art 数字。  
+- `docs/e2e-budget.md`：B 完成后填实测。  
+- `docs/fair-compare.md`：注明 art feature 对照用法。
 
 ---
 

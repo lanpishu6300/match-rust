@@ -43,7 +43,7 @@ The equivalence track `match-core` targets Java-observable equivalence (`BigDeci
 ## 2. Architecture and Crate Boundaries
 
 ```text
-match-rust/crates/
+crates/
 ├── match-core/       # Equivalence track (frozen behavior, production default)
 ├── match-core-hp/    # New: high-performance match core
 ├── match-bench/      # New: criterion / comparison benchmarks
@@ -146,7 +146,7 @@ Limit cross (clean semantics): buy can take when `ask_tick <= bid_tick`; market 
 - Latency: p50 / p99 / p999 of a single `on_order` (excluding MQ)  
 - Optional: hot-path heap allocation sampling  
 
-Results go to `match-rust/docs/bench-results.md` (or CI artifact).
+Results go to `docs/bench-results.md` (or CI artifact).
 
 ### 4.3 Acceptance
 
@@ -201,4 +201,4 @@ Results go to `match-rust/docs/bench-results.md` (or CI artifact).
 
 ## 7. OSS Best-Practices Index (Post-Landing)
 
-Full mapping is in-repo at [`match-rust/docs/best-practices.md`](../../../match-rust/docs/best-practices.md) (Disruptor / Aeron / Seastar / match-core common knowledge → module paths and how to enable).
+Full mapping is in-repo at [`docs/best-practices.md`](../best-practices.md) (Disruptor / Aeron / Seastar / match-core common knowledge → module paths and how to enable).
