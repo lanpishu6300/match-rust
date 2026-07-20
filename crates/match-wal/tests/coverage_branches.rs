@@ -87,7 +87,11 @@ fn async_batch_size_flush_and_timeout() {
 
 #[test]
 fn record_kinds_encode() {
-    for kind in [RecordKind::OrderAccepted, RecordKind::Fill, RecordKind::Cancel] {
+    for kind in [
+        RecordKind::OrderAccepted,
+        RecordKind::Fill,
+        RecordKind::Cancel,
+    ] {
         let r = WalRecord {
             kind,
             id_a: 1,

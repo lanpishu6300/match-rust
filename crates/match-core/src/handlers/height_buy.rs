@@ -1,6 +1,4 @@
 //! Height buy handler: PostOnly / IOC / FOK (Java `HeightBuyHandler`).
-//!
-//! Intentional Java parity: see module docs on [`crate::handlers`] for IOC loop quirk P0-2.
 
 use bigdecimal::BigDecimal;
 use match_protocol::{ORDER_FORM_FOK, ORDER_FORM_IOC, ORDER_FORM_POST_ONLY};
@@ -17,7 +15,9 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
     let order_no = order.trust_order_no.clone();
     let trust_price = order.trust_price.clone();
 
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
 
     // Java: `marketBuyHandler.handle(list)` is BaseHandler no-op — skipped.
 
@@ -47,11 +47,23 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
             );
             break;
         }
-        // Reachable on IOC continue after the height order was fully filled.
         if book.is_empty(Side::Buy) {
             break;
         }
-        let buy_px = book.first(Side::Buy).unwrap().trust_price.clone();
+        // IOC fully filled — stop.
+        if order_form == ORDER_FORM_IOC && !book.contains_order_no(&order_no) {
+            break;
+        }
+        let best_buy = book.first(Side::Buy).unwrap();
+        // IOC must not match via another resting buy (fixes P0-2).
+        if order_form == ORDER_FORM_IOC && best_buy.trust_order_no != order_no {
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Buy, "ioc_remainder"),
+            );
+            break;
+        }
+        let buy_px = best_buy.trust_price.clone();
         let sell_px = book.first(Side::Sell).unwrap().trust_price.clone();
         if buy_px < sell_px {
             let reason = ioc_or_fok_reason(order_form);
@@ -67,9 +79,7 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
             break;
         }
 
-        // IOC: ratherThan once, then continue without checking whether *this* IOC
-        // order remains — intentional Java parity (P0-2).
-        // Defensive `None` is ignored inside excluded helper; next iter breaks on empty.
+        // IOC: ratherThan once, then re-check that *this* order remains.
         push_rather_than_buy(book, &mut events);
     }
     events
@@ -108,5 +118,39 @@ fn revoke_by_no(
 fn push_revoke_if_present(events: &mut Vec<MatchEvent>, ev: Option<MatchEvent>) {
     if let Some(ev) = ev {
         events.push(ev);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bigdecimal::BigDecimal;
+    use std::str::FromStr;
+
+    fn dec(s: &str) -> BigDecimal {
+        BigDecimal::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn ioc_does_not_match_via_unrelated_resting_buy_on_crossed_book() {
+        // Artificially crossed book (e.g. restore): older buy is best. IOC must not
+        // drive ratherThan on that buy (former Java P0-2).
+        let mut book = OrderBook::new();
+        book.insert(BbOrder::test_limit(Side::Buy, dec("100"), "b_rest", 1, "1"));
+        book.insert(BbOrder::test_limit(Side::Sell, dec("100"), "s1", 2, "2"));
+        let events = handle_height_buy(
+            &mut book,
+            BbOrder::test_ioc(Side::Buy, dec("100"), "b_ioc", 3, "1"),
+        );
+
+        assert!(
+            !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })),
+            "must not fill using the resting buy as taker"
+        );
+        assert!(events.iter().any(
+            |e| matches!(e, MatchEvent::Revoke { order_no, reason, .. } if order_no == "b_ioc" && reason == "ioc_remainder")
+        ));
+        assert_eq!(book.first(Side::Buy).unwrap().trust_order_no, "b_rest");
+        assert_eq!(book.first(Side::Sell).unwrap().trust_order_no, "s1");
     }
 }

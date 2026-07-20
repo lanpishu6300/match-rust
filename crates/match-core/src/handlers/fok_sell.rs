@@ -49,8 +49,7 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
         sell.order_status = ORDER_STATUS_SUCCESS;
         sell.current_deal_number = last_sell.clone();
         sell.remaining_number = BigDecimal::zero();
-        // Java parity quirk: setConsumerAllNumber(buyOrder.getTrustNumber()).
-        sell.consumer_all_number = buy.trust_number.clone();
+        sell.consumer_all_number = sell.trust_number.clone();
         let deal_price = buy.trust_price.clone();
         vec![fill_event(
             &sell.symbol_key,
@@ -169,8 +168,7 @@ fn fok_sell_walk(
         sell.order_status = ORDER_STATUS_SUCCESS;
         sell.current_deal_number = deal_qty.clone();
         sell.remaining_number = BigDecimal::zero();
-        // Java: setConsumerAllNumber(buyOrder.getTrustNumber()) in this branch.
-        sell.consumer_all_number = buy.trust_number.clone();
+        sell.consumer_all_number = sell.trust_number.clone();
 
         let deal_price = buy.trust_price.clone();
         let maker_rem = buy.remaining_number.clone();

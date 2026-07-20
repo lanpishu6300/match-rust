@@ -1,12 +1,11 @@
 //! Per-symbol single-threaded worker: `recv → engine.on_order → outbound`.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use match_protocol::BbOrder;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::outbound::Outbound;
 use crate::telemetry;
@@ -15,16 +14,24 @@ use crate::telemetry;
 use match_core::{BbOrder as CoreOrder, Engine};
 
 #[cfg(feature = "hp-engine")]
+use std::time::Instant;
+
+#[cfg(feature = "hp-engine")]
 use match_core_hp::{adapter::from_bb_order, HpEngine, HpEvent, SymbolScale};
+#[cfg(feature = "hp-engine")]
+use tracing::warn;
 
 /// Spawn a worker that owns a matching engine for `symbol`.
 pub fn spawn_symbol_worker(
     symbol: String,
-    mut rx: mpsc::UnboundedReceiver<BbOrder>,
+    mut rx: mpsc::Receiver<BbOrder>,
     outbound: Arc<Outbound>,
+    price_scale: u32,
+    qty_scale: u32,
 ) -> JoinHandle<()> {
     #[cfg(not(feature = "hp-engine"))]
     {
+        let _ = (price_scale, qty_scale);
         tokio::spawn(async move {
             let mut engine = Engine::new();
             info!(symbol = %symbol, "symbol worker started (match-core)");
@@ -51,10 +58,15 @@ pub fn spawn_symbol_worker(
         tokio::spawn(async move {
             let mut engine = HpEngine::with_capacity(4096, 64);
             let scale = SymbolScale {
-                price_scale: 2,
-                qty_scale: 6,
+                price_scale,
+                qty_scale,
             };
-            info!(symbol = %symbol, "symbol worker started (hp-engine)");
+            info!(
+                symbol = %symbol,
+                price_scale,
+                qty_scale,
+                "symbol worker started (hp-engine)"
+            );
             while let Some(order) = rx.recv().await {
                 let t_recv = Instant::now();
                 let order_no = order.trust_order_no.clone();

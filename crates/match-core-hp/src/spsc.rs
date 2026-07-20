@@ -147,14 +147,8 @@ mod tests {
         r.try_push(HpCommand::Cancel { id: 2 }).unwrap();
         assert_eq!(r.len_approx(), 2);
 
-        assert_eq!(
-            r.try_pop(),
-            Some(HpCommand::Cancel { id: 1 })
-        );
-        assert_eq!(
-            r.try_pop(),
-            Some(HpCommand::Cancel { id: 2 })
-        );
+        assert_eq!(r.try_pop(), Some(HpCommand::Cancel { id: 1 }));
+        assert_eq!(r.try_pop(), Some(HpCommand::Cancel { id: 2 }));
         assert!(r.try_pop().is_none());
         assert_eq!(r.len_approx(), 0);
     }

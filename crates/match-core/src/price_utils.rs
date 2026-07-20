@@ -35,7 +35,12 @@ mod tests {
 
     #[test]
     fn zero_total_quantity_returns_zero() {
-        let avg = get_average_price(&BigDecimal::zero(), &BigDecimal::zero(), &BigDecimal::zero(), &BigDecimal::zero());
+        let avg = get_average_price(
+            &BigDecimal::zero(),
+            &BigDecimal::zero(),
+            &BigDecimal::zero(),
+            &BigDecimal::zero(),
+        );
         assert_eq!(avg, BigDecimal::zero());
     }
 }

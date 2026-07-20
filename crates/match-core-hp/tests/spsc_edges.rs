@@ -48,7 +48,7 @@ fn mixed_command_types_round_trip() {
         side: Side::Sell,
         qty_lot: 3,
         ts: 2,
-        max_levels: Some(1),
+        max_fills: Some(1),
         client_id: 2,
     })
     .unwrap();

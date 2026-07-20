@@ -38,12 +38,24 @@ async fn main() {
 
     let bootstrap_ready = BootstrapReady::new();
     let _health_task = if config.health.enabled {
-        Some(spawn_server(config.health.port, bootstrap_ready.shared()))
+        match spawn_server(config.health.port, bootstrap_ready.shared()).await {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                error!(error = %e, port = config.health.port, "health server bind failed");
+                std::process::exit(1);
+            }
+        }
     } else {
         None
     };
 
-    let (sink, source) = build_transport(&config);
+    let (sink, source) = match build_transport(&config) {
+        Ok(pair) => pair,
+        Err(e) => {
+            error!(error = %e, "transport init failed");
+            std::process::exit(1);
+        }
+    };
 
     let local_symbols: Option<Vec<String>> =
         std::env::var("MATCH_CONTRACT_LOCAL_SYMBOLS").ok().map(|s| {
@@ -83,7 +95,9 @@ async fn main() {
     info!("shutdown signal received");
 }
 
-fn build_transport(config: &Config) -> (Arc<dyn OrderSink>, Arc<dyn MessageSource>) {
+fn build_transport(
+    config: &Config,
+) -> Result<(Arc<dyn OrderSink>, Arc<dyn MessageSource>), String> {
     match config.rocketmq.transport {
         MqTransport::Memory => {
             let sink: Arc<dyn OrderSink> = if let Some(dir) = &config.rocketmq.memory_dir {
@@ -97,20 +111,15 @@ fn build_transport(config: &Config) -> (Arc<dyn OrderSink>, Arc<dyn MessageSourc
             if let Some(dir) = &config.rocketmq.memory_dir {
                 let in_dir = PathBuf::from(dir).join("in");
                 if let Err(e) = source.load_dir(&in_dir) {
-                    error!(error = %e, "memory inbound dir load failed");
+                    return Err(format!("memory inbound dir load failed: {e}"));
                 }
             }
-            (sink, source)
+            Ok((sink, source))
         }
-        MqTransport::Rocketmq => {
-            error!(
-                "RocketMQ transport is not available yet (see docs/rmq-spike.md); falling back to memory"
-            );
-            (
-                Arc::new(MemoryOrderSink::new()),
-                Arc::new(MemoryMessageSource::new()),
-            )
-        }
+        MqTransport::Rocketmq => Err(
+            "RocketMQ transport is not available yet (see docs/rmq-spike.md); refusing to start with a silent memory fallback"
+                .into(),
+        ),
     }
 }
 

@@ -4,7 +4,9 @@
 //! internal state (e.g. `Book::remove_from_level` when the level index is missing)
 //! are called out inline where we intentionally do not add tests.
 
-use match_core_hp::{Book, HpCommand, HpEngine, HpEvent, HpOrder, HpWorker, OrderStore, Side, WaitStrategy};
+use match_core_hp::{
+    Book, HpCommand, HpEngine, HpEvent, HpOrder, HpWorker, OrderStore, Side, WaitStrategy,
+};
 
 #[test]
 fn engine_default_constructible() {
@@ -26,7 +28,7 @@ fn match_buy_stops_when_taker_qty_exhausted_with_book_left() {
         side: Side::Buy,
         qty_lot: 2,
         ts: 2,
-        max_levels: None,
+        max_fills: None,
         client_id: 2,
     });
     assert_eq!(ev.len(), 1);
@@ -72,7 +74,13 @@ fn limit_sell_crosses_when_bid_at_or_above_limit() {
         ts: 2,
         client_id: 2,
     });
-    assert!(matches!(ev[0], HpEvent::Fill { price_tick: 100, .. }));
+    assert!(matches!(
+        ev[0],
+        HpEvent::Fill {
+            price_tick: 100,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -112,7 +120,7 @@ fn zero_qty_limit_and_market_are_no_ops() {
             side: Side::Buy,
             qty_lot: -1,
             ts: 2,
-            max_levels: None,
+            max_fills: None,
             client_id: 2,
         })
         .is_empty());
@@ -158,7 +166,13 @@ fn limit_sell_above_best_bid_does_not_cross() {
         ts: 2,
         client_id: 2,
     });
-    assert!(matches!(ev[0], HpEvent::Rest { price_tick: 101, .. }));
+    assert!(matches!(
+        ev[0],
+        HpEvent::Rest {
+            price_tick: 101,
+            ..
+        }
+    ));
     assert_eq!(e.book.best_bid(), Some(100));
     assert_eq!(e.book.best_ask(), Some(101));
 }
@@ -189,7 +203,7 @@ fn cancel_by_client_id() {
 }
 
 #[test]
-fn market_sell_respects_max_levels() {
+fn market_sell_respects_max_fills() {
     let mut e = HpEngine::new();
     for (i, tick) in [(1, 100i64), (2, 99), (3, 98)].into_iter() {
         e.on_order(HpCommand::Limit {
@@ -204,10 +218,18 @@ fn market_sell_respects_max_levels() {
         side: Side::Sell,
         qty_lot: 10,
         ts: 4,
-        max_levels: Some(2),
+        max_fills: Some(2),
         client_id: 4,
     });
-    assert_eq!(ev.len(), 2);
+    assert_eq!(ev.len(), 3);
+    assert!(matches!(
+        ev[2],
+        HpEvent::Revoke {
+            client_id: 4,
+            reason: 1,
+            ..
+        }
+    ));
     assert_eq!(e.book.best_bid(), Some(98));
 }
 
@@ -332,7 +354,13 @@ fn limit_sell_stops_matching_when_bid_below_limit() {
         ts: 2,
         client_id: 2,
     });
-    assert!(matches!(ev[0], HpEvent::Rest { price_tick: 102, .. }));
+    assert!(matches!(
+        ev[0],
+        HpEvent::Rest {
+            price_tick: 102,
+            ..
+        }
+    ));
     assert_eq!(e.book.best_bid(), Some(100));
 }
 
@@ -440,7 +468,7 @@ fn match_buy_breaks_on_empty_fifo_at_best() {
         side: Side::Buy,
         qty_lot: 1,
         ts: 2,
-        max_levels: None,
+        max_fills: None,
         client_id: 2,
     });
     assert!(ev.is_empty());
@@ -462,7 +490,7 @@ fn match_sell_breaks_on_empty_fifo_at_best() {
         side: Side::Sell,
         qty_lot: 1,
         ts: 2,
-        max_levels: None,
+        max_fills: None,
         client_id: 2,
     });
     assert!(ev.is_empty());
@@ -484,7 +512,7 @@ fn match_buy_missing_maker_in_store_uses_zero_open() {
         side: Side::Buy,
         qty_lot: 1,
         ts: 2,
-        max_levels: None,
+        max_fills: None,
         client_id: 2,
     });
     assert!(ev.is_empty());

@@ -44,17 +44,26 @@ pub enum HpEvent {
     Fill {
         maker_id: u64,
         taker_id: u64,
+        maker_client_id: u64,
+        taker_client_id: u64,
         price_tick: i64,
         qty_lot: i64,
+        /// Maker open lot after this fill.
+        maker_open_lot: i64,
+        /// Taker open lot after this fill.
+        taker_open_lot: i64,
     },
     Rest {
         id: u64,
+        client_id: u64,
         side: Side,
         price_tick: i64,
         qty_lot: i64,
     },
     Revoke {
         id: u64,
+        client_id: u64,
+        /// 0 = user cancel, 1 = market leftover / gear stop.
         reason: u8,
     },
 }
@@ -76,7 +85,8 @@ pub enum HpCommand {
         side: Side,
         qty_lot: i64,
         ts: u64,
-        max_levels: Option<u32>,
+        /// Max number of fills (aligned with match-core `gear`), `None` = unlimited.
+        max_fills: Option<u32>,
         client_id: u64,
     },
 }

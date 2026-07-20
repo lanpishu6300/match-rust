@@ -374,5 +374,4 @@ mod tests {
         assert!(b.cancel(id2));
         assert_eq!(b.best_ask(), None);
     }
-
 }

@@ -39,7 +39,12 @@ fn art_get_mut_and_remove_missing() {
 fn art_many_inserts_trigger_inner_splits() {
     let mut b = Book::new();
     for i in 0..32 {
-        b.insert_limit(HpOrder::limit(Side::Buy, 1_000 + i as i64 * 257, 1, i as u64));
+        b.insert_limit(HpOrder::limit(
+            Side::Buy,
+            1_000 + i as i64 * 257,
+            1,
+            i as u64,
+        ));
     }
     assert_eq!(b.depth(Side::Buy, 5).len(), 5);
     assert!(b.best_bid().is_some());

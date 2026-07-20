@@ -63,16 +63,20 @@ impl OrderBook {
         Self::default()
     }
 
-    pub fn insert(&mut self, order: BbOrder) {
+    /// Inserts `order`. Returns `false` if the side is invalid or an order with the
+    /// same `trust_order_no` at the same price already exists (BTreeSet Equal).
+    pub fn insert(&mut self, order: BbOrder) -> bool {
         match Side::from_order_type(order.order_type) {
-            Some(Side::Buy) => {
-                self.buys.insert(BuyEntry(order));
-            }
-            Some(Side::Sell) => {
-                self.sells.insert(SellEntry(order));
-            }
-            None => {}
+            Some(Side::Buy) => self.buys.insert(BuyEntry(order)),
+            Some(Side::Sell) => self.sells.insert(SellEntry(order)),
+            None => false,
         }
+    }
+
+    /// True if `order_no` is already resting on either side.
+    pub fn contains_order_no(&self, order_no: &str) -> bool {
+        self.buys.iter().any(|e| e.0.trust_order_no == order_no)
+            || self.sells.iter().any(|e| e.0.trust_order_no == order_no)
     }
 
     pub fn remove(&mut self, order: &BbOrder) -> bool {

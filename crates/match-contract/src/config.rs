@@ -82,6 +82,44 @@ pub struct RpcConfig {
 pub struct MatchConfig {
     #[serde(default)]
     pub symbols_whitelist: Vec<String>,
+    /// Per-symbol inbound queue capacity (bounded backpressure).
+    #[serde(default = "default_queue_capacity")]
+    pub queue_capacity: usize,
+    /// Default fixed-point scales for hp-engine (overridable per symbol).
+    #[serde(default = "default_price_scale")]
+    pub default_price_scale: u32,
+    #[serde(default = "default_qty_scale")]
+    pub default_qty_scale: u32,
+    #[serde(default)]
+    pub symbol_scales: std::collections::HashMap<String, SymbolScaleConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SymbolScaleConfig {
+    pub price_scale: u32,
+    pub qty_scale: u32,
+}
+
+fn default_queue_capacity() -> usize {
+    10_000
+}
+
+fn default_price_scale() -> u32 {
+    2
+}
+
+fn default_qty_scale() -> u32 {
+    6
+}
+
+impl MatchConfig {
+    pub fn scale_for(&self, symbol_key: &str) -> (u32, u32) {
+        if let Some(s) = self.symbol_scales.get(symbol_key) {
+            (s.price_scale, s.qty_scale)
+        } else {
+            (self.default_price_scale, self.default_qty_scale)
+        }
+    }
 }
 
 #[derive(Debug, Error)]

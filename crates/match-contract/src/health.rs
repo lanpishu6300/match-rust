@@ -34,33 +34,31 @@ impl BootstrapReady {
     }
 }
 
-/// Spawn the health/metrics HTTP server. Returns a join handle for graceful shutdown wiring.
-pub fn spawn_server(port: u16, ready: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let app = Router::new()
-            .route("/healthz", get(healthz))
-            .route(
-                "/readyz",
-                get({
-                    let ready = Arc::clone(&ready);
-                    move || readyz(ready)
-                }),
-            )
-            .route("/metrics", get(metrics));
+/// Spawn the health/metrics HTTP server after binding.
+/// Returns `Err` if the port cannot be bound (fail-closed for ops probes).
+pub async fn spawn_server(
+    port: u16,
+    ready: Arc<AtomicBool>,
+) -> Result<tokio::task::JoinHandle<()>, std::io::Error> {
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .route(
+            "/readyz",
+            get({
+                let ready = Arc::clone(&ready);
+                move || readyz(ready)
+            }),
+        )
+        .route("/metrics", get(metrics));
 
-        let addr = SocketAddr::from(([0, 0, 0, 0], port));
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                error!(error = %e, port, "health server bind failed");
-                return;
-            }
-        };
-        info!(port, "health server listening");
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!(port, "health server listening");
+    Ok(tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             error!(error = %e, "health server exited");
         }
-    })
+    }))
 }
 
 async fn healthz() -> &'static str {

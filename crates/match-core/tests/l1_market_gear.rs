@@ -33,10 +33,8 @@ fn market_buy_stops_at_gear_levels() {
 }
 
 #[test]
-fn market_buy_gear_zero_java_p0_3() {
-    // Java P0-3 parity: `bbOrders.size() >= gear` with gear=0 is true after the first
-    // match attempt. With resting liquidity Java still runs MarketBuyHandler once, then
-    // revokes the remainder (1 fill + market_gear revoke) — not “correct” unbounded market.
+fn market_buy_gear_zero_treated_as_one() {
+    // gear < 1 is rejected by protocol validate; engine treats missing/invalid gear as 1.
     let mut eng = Engine::new();
     for i in 0..5 {
         eng.on_order(BbOrder::test_limit(

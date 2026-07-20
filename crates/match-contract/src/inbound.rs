@@ -126,7 +126,7 @@ pub enum InboundError {
 
 /// Routes inbound MQ bodies onto per-symbol channels.
 pub struct InboundRouter {
-    queues: Mutex<HashMap<String, mpsc::UnboundedSender<BbOrder>>>,
+    queues: Mutex<HashMap<String, mpsc::Sender<BbOrder>>>,
     start_queue: Arc<StartQueueState>,
 }
 
@@ -142,7 +142,7 @@ impl InboundRouter {
         &self.start_queue
     }
 
-    pub fn register_queue(&self, symbol_key: &str, tx: mpsc::UnboundedSender<BbOrder>) {
+    pub fn register_queue(&self, symbol_key: &str, tx: mpsc::Sender<BbOrder>) {
         self.queues
             .lock()
             .expect("queues lock")
@@ -224,9 +224,12 @@ impl InboundRouter {
             queues.get(&symbol).cloned()
         };
         match tx {
-            Some(tx) => tx
-                .send(order)
-                .map_err(|_| InboundError::Enqueue("channel closed".into())),
+            Some(tx) => tx.try_send(order).map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => InboundError::Enqueue("channel full".into()),
+                mpsc::error::TrySendError::Closed(_) => {
+                    InboundError::Enqueue("channel closed".into())
+                }
+            }),
             None => {
                 warn!(
                     symbol = %symbol,
@@ -279,7 +282,7 @@ mod tests {
         let state = Arc::new(StartQueueState::new());
         state.record_restored("btcusdt", "100");
         let router = Arc::new(InboundRouter::new(Arc::clone(&state)));
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(64);
         router.register_queue("btcusdt", tx);
 
         router.handle_mq_order(&sample_mq("100", 0)).unwrap();
@@ -298,7 +301,7 @@ mod tests {
         assert_eq!(state.big_no(), 50);
 
         let router = Arc::new(InboundRouter::new(Arc::clone(&state)));
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(64);
         router.register_queue("btcusdt", tx);
 
         // big_no=50 >= 40 → drop
@@ -315,7 +318,7 @@ mod tests {
         let state = Arc::new(StartQueueState::new());
         state.record_restored("btcusdt", "100");
         let router = Arc::new(InboundRouter::new(Arc::clone(&state)));
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(64);
         router.register_queue("btcusdt", tx);
 
         router
@@ -333,7 +336,7 @@ mod tests {
         assert_eq!(state.big_no(), 0);
 
         let router = Arc::new(InboundRouter::new(Arc::clone(&state)));
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(64);
         router.register_queue("btcusdt", tx);
         router.handle_mq_order(&sample_mq("100", 0)).unwrap();
         assert_eq!(rx.recv().await.unwrap().trust_order_no, "100");

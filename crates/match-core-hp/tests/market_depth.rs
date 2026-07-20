@@ -21,7 +21,7 @@ fn market_buy_walks_asks_until_qty_done() {
         side: Side::Buy,
         qty_lot: 4,
         ts: 3,
-        max_levels: None,
+        max_fills: None,
         client_id: 3,
     });
     assert_eq!(ev.len(), 2);
@@ -61,10 +61,10 @@ fn market_buy_stops_when_book_empty() {
         side: Side::Buy,
         qty_lot: 10,
         ts: 2,
-        max_levels: None,
+        max_fills: None,
         client_id: 2,
     });
-    assert_eq!(ev.len(), 1);
+    assert_eq!(ev.len(), 2);
     assert!(matches!(
         ev[0],
         HpEvent::Fill {
@@ -73,11 +73,19 @@ fn market_buy_stops_when_book_empty() {
             ..
         }
     ));
+    assert!(matches!(
+        ev[1],
+        HpEvent::Revoke {
+            client_id: 2,
+            reason: 1,
+            ..
+        }
+    ));
     assert!(e.book.best_ask().is_none());
 }
 
 #[test]
-fn market_respects_max_levels() {
+fn market_respects_max_fills() {
     let mut e = HpEngine::new();
     e.on_order(HpCommand::Limit {
         side: Side::Sell,
@@ -104,10 +112,10 @@ fn market_respects_max_levels() {
         side: Side::Buy,
         qty_lot: 10,
         ts: 4,
-        max_levels: Some(2),
+        max_fills: Some(2),
         client_id: 4,
     });
-    assert_eq!(ev.len(), 2);
+    assert_eq!(ev.len(), 3);
     assert!(matches!(
         ev[0],
         HpEvent::Fill {
@@ -119,6 +127,14 @@ fn market_respects_max_levels() {
         ev[1],
         HpEvent::Fill {
             price_tick: 101,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ev[2],
+        HpEvent::Revoke {
+            client_id: 4,
+            reason: 1,
             ..
         }
     ));
@@ -146,7 +162,7 @@ fn market_sell_walks_bids() {
         side: Side::Sell,
         qty_lot: 3,
         ts: 3,
-        max_levels: None,
+        max_fills: None,
         client_id: 3,
     });
     assert_eq!(ev.len(), 2);

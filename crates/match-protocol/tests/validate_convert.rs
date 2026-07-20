@@ -45,6 +45,29 @@ fn check_mq_order_rejects_market_without_gear() {
 }
 
 #[test]
+fn check_mq_order_rejects_market_gear_zero() {
+    let mut o = valid_mq();
+    o.order_form = Some(2);
+    o.gear = Some(0);
+    assert!(!check_mq_order(&o));
+}
+
+#[test]
+fn check_mq_order_rejects_unknown_order_form() {
+    let mut o = valid_mq();
+    o.order_form = Some(99);
+    assert!(!check_mq_order(&o));
+}
+
+#[test]
+fn check_mq_order_accepts_market_with_positive_gear() {
+    let mut o = valid_mq();
+    o.order_form = Some(2);
+    o.gear = Some(3);
+    assert!(check_mq_order(&o));
+}
+
+#[test]
 fn type_convert_normalizes_symbol_and_remaining() {
     let bb = type_convert(&valid_mq()).expect("convert");
     assert_eq!(bb.symbol_key, "btcusdt");

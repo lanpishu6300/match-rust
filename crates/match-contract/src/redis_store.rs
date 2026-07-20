@@ -148,10 +148,29 @@ fn node_urls(config: &RedisConfig) -> Vec<String> {
             if config.password.is_empty() {
                 format!("redis://{node}/")
             } else {
-                format!("redis://:{}@{node}/", config.password)
+                let password = urlencoding_encode(&config.password);
+                format!("redis://:{password}@{node}/")
             }
         })
         .collect()
+}
+
+/// Minimal URL-encode for Redis password authority (encode `@`, `:`, `/`, `%`, space).
+fn urlencoding_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push('%');
+                out.push(char::from(b"0123456789ABCDEF"[(b >> 4) as usize]));
+                out.push(char::from(b"0123456789ABCDEF"[(b & 0xf) as usize]));
+            }
+        }
+    }
+    out
 }
 
 /// `coinMarket.replace("/", "").toLowerCase()`.

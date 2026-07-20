@@ -72,7 +72,7 @@ fn adapts_cancel() {
 }
 
 #[test]
-fn adapts_market_with_max_levels_from_gear() {
+fn adapts_market_with_max_fills_from_gear() {
     let mut o = base_order();
     o.order_type = ORDER_TYPE_SELL;
     o.order_form = ORDER_FORM_MARKET_PRICE;
@@ -85,7 +85,7 @@ fn adapts_market_with_max_levels_from_gear() {
             side: Side::Sell,
             qty_lot: 15000,
             ts: 99,
-            max_levels: Some(3),
+            max_fills: Some(3),
             client_id: 42,
         }
     );
@@ -103,39 +103,54 @@ fn rejects_excess_price_scale() {
 fn rejects_unsupported_side_and_form() {
     let mut o = base_order();
     o.order_type = 0;
-    assert_eq!(from_bb_order(&o, &scale()).unwrap_err(), AdapterError::UnsupportedSide);
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::UnsupportedSide
+    );
 
     o = base_order();
     o.order_form = match_protocol::ORDER_FORM_POST_ONLY;
-    assert_eq!(from_bb_order(&o, &scale()).unwrap_err(), AdapterError::UnsupportedForm);
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::UnsupportedForm
+    );
 }
 
 #[test]
 fn rejects_invalid_id_and_timestamp() {
     let mut o = base_order();
     o.trust_order_no = "not-a-number".into();
-    assert_eq!(from_bb_order(&o, &scale()).unwrap_err(), AdapterError::InvalidOrderId);
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::InvalidOrderId
+    );
 
     o = base_order();
     o.create_time = -1;
-    assert_eq!(from_bb_order(&o, &scale()).unwrap_err(), AdapterError::InvalidTimestamp);
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::InvalidTimestamp
+    );
 }
 
 #[test]
-fn market_gear_zero_or_negative_omits_max_levels() {
+fn market_gear_zero_or_negative_rejected() {
     let mut o = base_order();
     o.order_form = ORDER_FORM_MARKET_PRICE;
     o.trust_price = BigDecimal::from(0);
     o.gear = Some(0);
-    let cmd = from_bb_order(&o, &scale()).unwrap();
     assert_eq!(
-        cmd,
-        HpCommand::Market {
-            side: Side::Buy,
-            qty_lot: 15000,
-            ts: 99,
-            max_levels: None,
-            client_id: 42,
-        }
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::InvalidGear
+    );
+    o.gear = Some(-1);
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::InvalidGear
+    );
+    o.gear = None;
+    assert_eq!(
+        from_bb_order(&o, &scale()).unwrap_err(),
+        AdapterError::InvalidGear
     );
 }

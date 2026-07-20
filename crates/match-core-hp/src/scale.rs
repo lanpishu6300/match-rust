@@ -94,6 +94,8 @@ fn format_fixed(value: i64, scale: u32) -> String {
     if scale == 0 {
         return value.to_string();
     }
+    // Avoid panic from `10u64.pow` for absurd scales; clamp to max u64 decimal digits.
+    let scale = scale.min(19);
     let neg = value < 0;
     let abs = value.unsigned_abs();
     let factor = 10u64.pow(scale);

@@ -18,11 +18,7 @@ fn post_only_sell_that_would_take_revokes() {
         "1",
     ));
 
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     let revokes: Vec<_> = events
         .iter()
         .filter(|e| matches!(e, MatchEvent::Revoke { .. }))
@@ -87,7 +83,12 @@ fn ioc_sell_partial_fill_revokes_remainder() {
         .filter(|e| matches!(e, MatchEvent::Fill { .. }))
         .collect();
     assert_eq!(fills.len(), 1);
-    if let MatchEvent::Fill { qty, taker_remaining, .. } = &fills[0] {
+    if let MatchEvent::Fill {
+        qty,
+        taker_remaining,
+        ..
+    } = &fills[0]
+    {
         assert_eq!(qty, "1");
         assert_eq!(taker_remaining, "2");
     }
@@ -116,11 +117,7 @@ fn ioc_buy_no_cross_revokes_without_fill() {
     eng.on_order(BbOrder::test_limit(Side::Sell, dec("101"), "s1", 1, "1"));
     let events = eng.on_order(BbOrder::test_ioc(Side::Buy, dec("100"), "b_ioc", 2, "1"));
 
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -137,11 +134,7 @@ fn ioc_sell_no_cross_revokes_without_fill() {
     eng.on_order(BbOrder::test_limit(Side::Buy, dec("99"), "b1", 1, "1"));
     let events = eng.on_order(BbOrder::test_ioc(Side::Sell, dec("100"), "s_ioc", 2, "1"));
 
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -174,11 +167,9 @@ fn fok_sell_success_full_fill_no_remainder() {
         assert_eq!(taker_remaining, "0");
         assert_eq!(maker_remaining, "0");
     }
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -190,9 +181,7 @@ fn fok_sell_fail_no_net_book_change_and_revoke() {
 
     let events = eng.on_order(BbOrder::test_fok(Side::Sell, dec("100"), "s_fok", 2, "2"));
 
-    assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -209,9 +198,7 @@ fn fok_buy_empty_sell_book_revokes() {
     let mut eng = Engine::new();
     let events = eng.on_order(BbOrder::test_fok(Side::Buy, dec("100"), "b_fok", 1, "1"));
 
-    assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -227,9 +214,7 @@ fn fok_sell_empty_buy_book_revokes() {
     let mut eng = Engine::new();
     let events = eng.on_order(BbOrder::test_fok(Side::Sell, dec("100"), "s_fok", 1, "1"));
 
-    assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {

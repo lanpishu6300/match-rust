@@ -1,4 +1,4 @@
-use crate::constants::{ORDER_FORM_MARKET_PRICE, ORDER_STATUS, ORDER_TYPES, TYPES};
+use crate::constants::{ORDER_FORMS, ORDER_FORM_MARKET_PRICE, ORDER_STATUS, ORDER_TYPES, TYPES};
 use crate::mq_order::MqOrder;
 
 fn is_blank(value: &Option<String>) -> bool {
@@ -39,8 +39,14 @@ pub fn check_mq_order(mq_order: &MqOrder) -> bool {
     let Some(order_form) = mq_order.order_form else {
         return false;
     };
-    if order_form == ORDER_FORM_MARKET_PRICE && mq_order.gear.is_none() {
+    if !contains_value(ORDER_FORMS, order_form) {
         return false;
+    }
+    if order_form == ORDER_FORM_MARKET_PRICE {
+        match mq_order.gear {
+            Some(g) if g >= 1 => {}
+            _ => return false,
+        }
     }
 
     if is_blank(&mq_order.symbol_key)

@@ -56,14 +56,16 @@ pub fn revoke_order_with_reason(
     Some(MatchEvent::Revoke {
         order_no: removed.trust_order_no.clone(),
         symbol: removed.symbol_key.clone(),
-        remaining: dec_str(&removed.remaining_number),
+        remaining: dec_str(&remaining(&removed)),
         reason: reason.to_string(),
     })
 }
 
 /// Java `BuyHandler` limit path: add to buy book, then match while buy.first >= sell.first.
 pub fn handle_limit_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
     let mut events = Vec::new();
     loop {
         // Split `||` so each side emptiness is an independent, testable branch.
@@ -96,7 +98,9 @@ fn push_rather_than_buy(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
 
 /// Java `SellHandler` limit path: add to sell book, then match while sell.first <= buy.first.
 pub fn handle_limit_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
     let mut events = Vec::new();
     loop {
         if book.is_empty(Side::Buy) {
@@ -141,7 +145,10 @@ pub(crate) enum RatherThanSellResult {
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
 pub(crate) fn rather_than_buy(book: &mut OrderBook) -> Option<MatchEvent> {
     let mut buy = book.pop_first(Side::Buy)?;
-    let sell = book.pop_first(Side::Sell)?;
+    let Some(sell) = book.pop_first(Side::Sell) else {
+        book.insert(buy);
+        return None;
+    };
     let last_buy = remaining(&buy);
     let last_sell = remaining(&sell);
     let symbol = buy.symbol_key.clone();
@@ -392,7 +399,7 @@ fn equals_sell(
 
 /// Rest-only path for unrecognized sides / forms.
 pub fn rest_only(book: &mut OrderBook, order: BbOrder) {
-    book.insert(order);
+    let _ = book.insert(order);
 }
 
 pub fn is_revoke(order: &BbOrder) -> bool {
@@ -412,7 +419,10 @@ mod tests {
     #[test]
     fn handle_limit_buy_breaks_when_sell_side_missing() {
         let mut book = OrderBook::new();
-        let events = handle_limit_buy(&mut book, BbOrder::test_limit(Side::Buy, dec("100"), "b1", 1, "1"));
+        let events = handle_limit_buy(
+            &mut book,
+            BbOrder::test_limit(Side::Buy, dec("100"), "b1", 1, "1"),
+        );
         assert!(events.is_empty());
         assert_eq!(book.depth_levels(Side::Buy, 10).len(), 1);
     }
@@ -420,7 +430,10 @@ mod tests {
     #[test]
     fn handle_limit_sell_breaks_when_buy_side_missing() {
         let mut book = OrderBook::new();
-        let events = handle_limit_sell(&mut book, BbOrder::test_limit(Side::Sell, dec("100"), "s1", 1, "1"));
+        let events = handle_limit_sell(
+            &mut book,
+            BbOrder::test_limit(Side::Sell, dec("100"), "s1", 1, "1"),
+        );
         assert!(events.is_empty());
         assert_eq!(book.depth_levels(Side::Sell, 10).len(), 1);
     }
@@ -429,7 +442,10 @@ mod tests {
     fn handle_limit_buy_breaks_when_buy_price_below_sell() {
         let mut book = OrderBook::new();
         book.insert(BbOrder::test_limit(Side::Sell, dec("101"), "s1", 1, "1"));
-        let events = handle_limit_buy(&mut book, BbOrder::test_limit(Side::Buy, dec("100"), "b1", 2, "1"));
+        let events = handle_limit_buy(
+            &mut book,
+            BbOrder::test_limit(Side::Buy, dec("100"), "b1", 2, "1"),
+        );
         assert!(events.is_empty());
         assert_eq!(book.depth_levels(Side::Buy, 10).len(), 1);
     }
@@ -470,7 +486,10 @@ mod tests {
 
         match rather_than_sell(&mut book) {
             RatherThanSellResult::Revoked(ev) => {
-                if let MatchEvent::Revoke { order_no, reason, .. } = ev {
+                if let MatchEvent::Revoke {
+                    order_no, reason, ..
+                } = ev
+                {
                     assert_eq!(order_no, "s_fok");
                     assert_eq!(reason, "user");
                 } else {
@@ -488,6 +507,7 @@ mod tests {
         assert!(rather_than_buy(&mut book).is_none());
         book.insert(BbOrder::test_limit(Side::Buy, dec("100"), "b1", 1, "1"));
         assert!(rather_than_buy(&mut book).is_none());
+        assert_eq!(book.first(Side::Buy).unwrap().trust_order_no, "b1");
     }
 
     #[test]
@@ -502,5 +522,6 @@ mod tests {
             rather_than_sell(&mut book),
             RatherThanSellResult::None
         ));
+        assert_eq!(book.first(Side::Sell).unwrap().trust_order_no, "s1");
     }
 }

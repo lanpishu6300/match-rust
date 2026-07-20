@@ -1,6 +1,4 @@
 //! Height sell handler: PostOnly / IOC / FOK (Java `HeightSellHandler`).
-//!
-//! Intentional Java parity: see module docs on [`crate::handlers`] for IOC loop quirk P0-2.
 
 use bigdecimal::BigDecimal;
 use match_protocol::{ORDER_FORM_FOK, ORDER_FORM_IOC, ORDER_FORM_POST_ONLY};
@@ -17,7 +15,9 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
     let order_no = order.trust_order_no.clone();
     let trust_price = order.trust_price.clone();
 
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
 
     let mut events = Vec::new();
     loop {
@@ -45,11 +45,23 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
             );
             break;
         }
-        // Reachable on IOC continue after the height order was fully filled.
         if book.is_empty(Side::Sell) {
             break;
         }
-        let sell_px = book.first(Side::Sell).unwrap().trust_price.clone();
+        // IOC fully filled — stop.
+        if order_form == ORDER_FORM_IOC && !book.contains_order_no(&order_no) {
+            break;
+        }
+        let best_sell = book.first(Side::Sell).unwrap();
+        // IOC must not match via another resting sell (fixes P0-2).
+        if order_form == ORDER_FORM_IOC && best_sell.trust_order_no != order_no {
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Sell, "ioc_remainder"),
+            );
+            break;
+        }
+        let sell_px = best_sell.trust_price.clone();
         let buy_px = book.first(Side::Buy).unwrap().trust_price.clone();
         // Java: sell.first.compareTo(buy.first) > 0 → revoke remainder
         if sell_px > buy_px {
@@ -66,8 +78,7 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
             break;
         }
 
-        // IOC: ratherThan once, then continue (P0-2).
-        // `None`/`Revoked` are defensive for IOC form (Revoked is FOK-only in rather_than_sell).
+        // IOC: ratherThan once, then re-check that *this* order remains.
         push_rather_than_sell_ioc(book, &mut events);
     }
     events

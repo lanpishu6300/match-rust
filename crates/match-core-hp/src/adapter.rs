@@ -22,6 +22,8 @@ pub enum AdapterError {
     InvalidOrderId,
     #[error("create_time must be non-negative")]
     InvalidTimestamp,
+    #[error("market gear must be >= 1")]
+    InvalidGear,
 }
 
 /// Convert a protocol [`BbOrder`] into an [`HpCommand`] using symbol scales.
@@ -54,14 +56,15 @@ pub fn from_bb_order(o: &BbOrder, scale: &SymbolScale) -> Result<HpCommand, Adap
             })
         }
         ORDER_FORM_MARKET_PRICE => {
-            let max_levels = o
+            let gear = o
                 .gear
-                .and_then(|g| if g > 0 { Some(g as u32) } else { None });
+                .filter(|g| *g >= 1)
+                .ok_or(AdapterError::InvalidGear)?;
             Ok(HpCommand::Market {
                 side,
                 qty_lot,
                 ts,
-                max_levels,
+                max_fills: Some(gear as u32),
                 client_id,
             })
         }

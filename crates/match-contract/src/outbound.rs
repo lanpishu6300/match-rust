@@ -229,45 +229,55 @@ impl Outbound {
         for event in events {
             match event {
                 HpEvent::Fill {
-                    maker_id,
-                    taker_id,
+                    maker_client_id,
+                    taker_client_id,
                     price_tick,
                     qty_lot,
+                    maker_open_lot,
+                    taker_open_lot,
+                    ..
                 } => {
                     telemetry::record_fill();
                     let price = from_tick(scale, *price_tick);
                     let qty = from_lot(scale, *qty_lot);
-                    let taker_rem = engine
-                        .book
-                        .store()
-                        .get(*taker_id)
-                        .map(|o| from_lot(scale, o.open_lot))
-                        .unwrap_or_else(|| "0".into());
-                    let maker_rem = engine
-                        .book
-                        .store()
-                        .get(*maker_id)
-                        .map(|o| from_lot(scale, o.open_lot))
-                        .unwrap_or_else(|| "0".into());
+                    let taker_rem = from_lot(scale, *taker_open_lot);
+                    let maker_rem = from_lot(scale, *maker_open_lot);
+                    let taker_status = if *taker_open_lot == 0 {
+                        match_protocol::ORDER_STATUS_SUCCESS as u8
+                    } else {
+                        match_protocol::ORDER_STATUS_SUCCESS_PART as u8
+                    };
+                    let maker_status = if *maker_open_lot == 0 {
+                        match_protocol::ORDER_STATUS_SUCCESS as u8
+                    } else {
+                        match_protocol::ORDER_STATUS_SUCCESS_PART as u8
+                    };
                     push_batch.push(PushOrder {
                         symbol_key: symbol.to_string(),
-                        trust_order_no: taker_id.to_string(),
-                        target_trust_order_no: Some(maker_id.to_string()),
+                        trust_order_no: taker_client_id.to_string(),
+                        target_trust_order_no: Some(maker_client_id.to_string()),
                         trust_price: price.clone(),
                         deal_price: Some(price),
                         remaining_number: taker_rem,
                         target_remaining_number: Some(maker_rem),
-                        order_status: 2,
-                        target_order_status: Some(2),
+                        order_status: taker_status,
+                        target_order_status: Some(maker_status),
                         current_deal_number: Some(qty),
                         reason: None,
                     });
                 }
-                HpEvent::Revoke { id, .. } => {
+                HpEvent::Revoke {
+                    client_id, reason, ..
+                } => {
                     telemetry::record_order_cancelled();
+                    let reason_str = if *reason == 1 {
+                        "market_remainder"
+                    } else {
+                        "cancel"
+                    };
                     push_batch.push(PushOrder {
                         symbol_key: symbol.to_string(),
-                        trust_order_no: id.to_string(),
+                        trust_order_no: client_id.to_string(),
                         target_trust_order_no: None,
                         trust_price: "0".into(),
                         deal_price: None,
@@ -276,7 +286,7 @@ impl Outbound {
                         order_status: match_protocol::ORDER_STATUS_REVOKE_SUCCESS as u8,
                         target_order_status: None,
                         current_deal_number: None,
-                        reason: Some("cancel".into()),
+                        reason: Some(reason_str.into()),
                     });
                 }
                 HpEvent::Rest { .. } => {

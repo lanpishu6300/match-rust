@@ -29,6 +29,8 @@ pub enum BootstrapError {
     Source(#[from] crate::mq::SourceError),
     #[error("no markets after shard/whitelist filter")]
     NoMarkets,
+    #[error("restore enqueue failed: {0}")]
+    Restore(String),
 }
 
 /// Handles kept alive for the process lifetime.
@@ -74,7 +76,8 @@ pub async fn run(
     let start_queue = Arc::new(StartQueueState::new());
     let router = Arc::new(InboundRouter::new(Arc::clone(&start_queue)));
 
-    let mut pending: Vec<(String, mpsc::UnboundedReceiver<match_protocol::BbOrder>)> = Vec::new();
+    let queue_capacity = config.r#match.queue_capacity.max(1);
+    let mut pending: Vec<(String, mpsc::Receiver<match_protocol::BbOrder>)> = Vec::new();
     let mut symbols = Vec::new();
 
     for market in &filtered {
@@ -89,7 +92,7 @@ pub async fn run(
         redis.wipe_depth_keys(origin)?;
         redis.reset_link_key(&symbol_key, coin_market)?;
 
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(queue_capacity);
         router.register_queue(&symbol_key, tx);
         pending.push((symbol_key.clone(), rx));
         symbols.push(symbol_key);
@@ -108,7 +111,14 @@ pub async fn run(
     let mut workers = Vec::new();
     for (symbol_key, rx) in pending {
         info!(symbol = %symbol_key, "symbol worker + queue ready");
-        workers.push(spawn_symbol_worker(symbol_key, rx, Arc::clone(&outbound)));
+        let (price_scale, qty_scale) = config.r#match.scale_for(&symbol_key);
+        workers.push(spawn_symbol_worker(
+            symbol_key,
+            rx,
+            Arc::clone(&outbound),
+            price_scale,
+            qty_scale,
+        ));
     }
 
     let order_client = OrderClient::new(&config.rpc.order_base_url);
@@ -117,11 +127,16 @@ pub async fn run(
     for row in &restored {
         let mq = build_mq_order(row);
         if let Err(e) = router.handle_restore_order(&mq) {
-            warn!(error = %e, "restore enqueue failed");
+            return Err(BootstrapError::Restore(e.to_string()));
         }
     }
 
-    start_consumers(source.as_ref(), &symbols, Arc::clone(&router))?;
+    start_consumers(
+        source.as_ref(),
+        &symbols,
+        &config.rocketmq.consumer_group,
+        Arc::clone(&router),
+    )?;
     info!(symbols = symbols.len(), "consumers started");
 
     let ttl = config.start_queue_ttl_ms;
@@ -162,18 +177,27 @@ pub async fn run_local(
         config.depth_push_interval_ms,
     ));
 
+    let queue_capacity = config.r#match.queue_capacity.max(1);
     let mut workers = Vec::new();
     for symbol_key in &symbols {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(queue_capacity);
         router.register_queue(symbol_key, tx);
+        let (price_scale, qty_scale) = config.r#match.scale_for(symbol_key);
         workers.push(spawn_symbol_worker(
             symbol_key.clone(),
             rx,
             Arc::clone(&outbound),
+            price_scale,
+            qty_scale,
         ));
     }
 
-    start_consumers(source.as_ref(), &symbols, Arc::clone(&router))?;
+    start_consumers(
+        source.as_ref(),
+        &symbols,
+        &config.rocketmq.consumer_group,
+        Arc::clone(&router),
+    )?;
 
     let ttl = config.start_queue_ttl_ms;
     let start_queue_ttl = Arc::clone(&start_queue);

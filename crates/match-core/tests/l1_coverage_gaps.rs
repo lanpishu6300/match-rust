@@ -79,11 +79,9 @@ fn ioc_buy_fully_filled_against_larger_sell_stops_without_revoke() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -99,11 +97,9 @@ fn ioc_sell_fully_filled_against_larger_buy_stops_without_revoke() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -119,11 +115,9 @@ fn ioc_buy_fully_filled_does_not_revoke() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -141,11 +135,9 @@ fn ioc_buy_full_fill_with_leftover_sell_hits_empty_buy_break() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
     assert_eq!(eng.depth_levels("btcusdt", Side::Sell, 20).len(), 1);
 }
 
@@ -163,11 +155,9 @@ fn ioc_sell_full_fill_with_leftover_buy_hits_empty_sell_break() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
     assert_eq!(eng.depth_levels("btcusdt", Side::Buy, 20).len(), 1);
 }
 
@@ -184,11 +174,9 @@ fn ioc_sell_fully_filled_does_not_revoke() {
             .count(),
         1
     );
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -227,9 +215,7 @@ fn fok_buy_walk_rolls_back_on_price_gap() {
     let before = eng.depth_levels("btcusdt", Side::Sell, 20);
 
     let events = eng.on_order(BbOrder::test_fok(Side::Buy, dec("100"), "b_fok", 3, "2"));
-    assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -249,9 +235,7 @@ fn fok_sell_walk_rolls_back_on_price_gap() {
     let before = eng.depth_levels("btcusdt", Side::Buy, 20);
 
     let events = eng.on_order(BbOrder::test_fok(Side::Sell, dec("100"), "s_fok", 3, "2"));
-    assert!(
-        !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. }))
-    );
+    assert!(!events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })));
     assert!(events.iter().any(|e| matches!(
         e,
         MatchEvent::Revoke {
@@ -275,11 +259,9 @@ fn fok_buy_walk_fills_against_larger_second_sell() {
         .filter(|e| matches!(e, MatchEvent::Fill { .. }))
         .collect();
     assert_eq!(fills.len(), 2);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]
@@ -294,11 +276,9 @@ fn fok_sell_walk_fills_against_larger_second_buy() {
         .filter(|e| matches!(e, MatchEvent::Fill { .. }))
         .collect();
     assert_eq!(fills.len(), 2);
-    assert!(
-        !events
-            .iter()
-            .any(|e| matches!(e, MatchEvent::Revoke { .. }))
-    );
+    assert!(!events
+        .iter()
+        .any(|e| matches!(e, MatchEvent::Revoke { .. })));
 }
 
 #[test]

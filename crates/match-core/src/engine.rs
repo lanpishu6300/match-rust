@@ -26,10 +26,15 @@ impl Engine {
     /// Accept an incoming order: revoke, market, height (PostOnly/IOC/FOK), or limit-match.
     pub fn on_order(&mut self, order: BbOrder) -> Vec<MatchEvent> {
         let symbol = order.symbol_key.clone();
-        let book = self.books.entry(symbol).or_insert_with(OrderBook::new);
+        let book = self.books.entry(symbol).or_default();
 
         if is_revoke(&order) {
             return revoke_order(book, &order).into_iter().collect();
+        }
+
+        // Duplicate trust_order_no: reject silently (inbound should dedupe; surface via empty).
+        if book.contains_order_no(&order.trust_order_no) {
+            return Vec::new();
         }
 
         if is_height_order_form(order.order_form) {

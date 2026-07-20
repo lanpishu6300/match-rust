@@ -1,5 +1,5 @@
 //! Market-order matching ported from Java BuyHandler/SellHandler market branches
-//! and MarketBuyHandler (gear stop; preserve P0-3 gear=0 behavior).
+//! and MarketBuyHandler (gear stop; gear &lt; 1 is rejected upstream by protocol validate).
 
 use bigdecimal::BigDecimal;
 use match_protocol::ORDER_FORM_MARKET_PRICE;
@@ -24,8 +24,8 @@ fn market_buy_handle(book: &mut OrderBook) -> Option<MatchEvent> {
 }
 
 fn gear_of(order: &BbOrder) -> i32 {
-    // Java NPE if null; validation requires Some for market. Treat None as 0 (P0-3).
-    order.gear.unwrap_or(0)
+    // Protocol validate requires gear >= 1 for market; default 1 if missing defensively.
+    order.gear.filter(|g| *g >= 1).unwrap_or(1)
 }
 
 fn revoke_by_no(
@@ -49,7 +49,9 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
     order.trust_price = BigDecimal::from(MARKET_BUY_TRUST_PRICE);
     let gear = gear_of(&order);
     let order_no = order.trust_order_no.clone();
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
 
     let mut events = Vec::new();
     let mut fill_count: i32 = 0;
@@ -72,6 +74,11 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
         // LLVM emits a sticky uncovered true-counter here alongside a covered twin;
         // helper excluded so only the caller stop decision is scored.
         if market_buy_not_our_order(best_buy, &order_no) {
+            // Another market (or non-ours) is best — do not leave this taker resting at MAX.
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Buy, "market_blocked"),
+            );
             break;
         }
 
@@ -84,20 +91,16 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
             None => false,
         };
 
-        // Java: `bbOrders.size() >= bbOrder.getGear()` after each attempt (P0-3: gear=0 ⇒ always).
-        if market_gear_stop(
-            book,
-            &mut events,
-            &order_no,
-            Side::Buy,
-            fill_count,
-            gear,
-        ) {
+        if market_gear_stop(book, &mut events, &order_no, Side::Buy, fill_count, gear) {
             break;
         }
 
-        // Java would `continue` forever when match returns null and gear > size; stop instead.
+        // No progress (e.g. best sell is also market): revoke leftover — do not rest at MAX.
         if !made_progress {
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Buy, "market_blocked"),
+            );
             break;
         }
     }
@@ -112,7 +115,9 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
 pub fn handle_market_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
     let gear = gear_of(&order);
     let order_no = order.trust_order_no.clone();
-    book.insert(order);
+    if !book.insert(order) {
+        return Vec::new();
+    }
 
     let mut events = Vec::new();
     let mut fill_count: i32 = 0;
@@ -132,20 +137,26 @@ pub fn handle_market_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
             break;
         }
         if market_sell_not_our_order(best_sell, &order_no) {
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Sell, "market_blocked"),
+            );
             break;
         }
 
         // Market sells are never FOK, so `Revoked`/`None` are defensive; helper excluded.
-        fill_count += market_sell_fill_delta(book, &mut events);
+        let delta = market_sell_fill_delta(book, &mut events);
+        fill_count += delta;
 
-        if market_gear_stop(
-            book,
-            &mut events,
-            &order_no,
-            Side::Sell,
-            fill_count,
-            gear,
-        ) {
+        if market_gear_stop(book, &mut events, &order_no, Side::Sell, fill_count, gear) {
+            break;
+        }
+
+        if delta == 0 {
+            push_revoke_if_present(
+                &mut events,
+                revoke_by_no(book, &order_no, Side::Sell, "market_blocked"),
+            );
             break;
         }
     }
@@ -198,7 +209,7 @@ fn market_gear_stop(
     fill_count: i32,
     gear: i32,
 ) -> bool {
-    if fill_count >= gear {
+    if gear > 0 && fill_count >= gear {
         push_revoke_if_present(events, revoke_by_no(book, order_no, side, "market_gear"));
         true
     } else {
@@ -228,6 +239,10 @@ mod tests {
         let events = handle_market_buy(&mut book, market_buy);
 
         assert!(events.iter().all(|e| !matches!(e, MatchEvent::Fill { .. })));
+        assert!(events.iter().any(
+            |e| matches!(e, MatchEvent::Revoke { order_no, reason, .. } if order_no == "b_mkt" && reason == "market_blocked")
+        ));
+        assert!(book.is_empty(Side::Buy));
     }
 
     #[test]
@@ -329,14 +344,23 @@ mod tests {
         let second = BbOrder::test_market(Side::Buy, "b_second", 3, "1");
         let events = handle_market_buy(&mut book, second);
 
-        assert!(events.is_empty());
+        assert!(events.iter().any(
+            |e| matches!(e, MatchEvent::Revoke { order_no, reason, .. } if order_no == "b_second" && reason == "market_blocked")
+        ));
         assert_eq!(book.best(Side::Buy).unwrap().trust_order_no, "b_first");
+        assert!(!book.contains_order_no("b_second"));
     }
 
     #[test]
     fn market_sell_stops_when_best_sell_is_no_longer_market() {
         let mut book = OrderBook::new();
-        book.insert(BbOrder::test_limit(Side::Sell, dec("100"), "s_rest", 1, "5"));
+        book.insert(BbOrder::test_limit(
+            Side::Sell,
+            dec("100"),
+            "s_rest",
+            1,
+            "5",
+        ));
         book.insert(BbOrder::test_limit(Side::Buy, dec("100"), "b1", 2, "1"));
         book.insert(BbOrder::test_limit(Side::Buy, dec("99"), "b2", 3, "1"));
         let mut market_sell = BbOrder::test_market(Side::Sell, "s_mkt", 4, "1");
@@ -358,7 +382,10 @@ mod tests {
         let second = BbOrder::test_market(Side::Sell, "s_second", 3, "1");
         let events = handle_market_sell(&mut book, second);
 
-        assert!(events.is_empty());
+        assert!(events.iter().any(
+            |e| matches!(e, MatchEvent::Revoke { order_no, reason, .. } if order_no == "s_second" && reason == "market_blocked")
+        ));
         assert_eq!(book.best(Side::Sell).unwrap().trust_order_no, "s_first");
+        assert!(!book.contains_order_no("s_second"));
     }
 }

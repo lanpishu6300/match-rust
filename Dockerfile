@@ -12,6 +12,6 @@ WORKDIR /app
 COPY --from=builder /app/target/release/match-contract /usr/local/bin/match-contract
 COPY crates/match-contract/config.example.yaml /app/config.yaml
 ENV MATCH_CONTRACT_CONFIG=/app/config.yaml
-ENV MATCH_CONTRACT_LOCAL_SYMBOLS=btcusdt
+# For local smoke only: docker run -e MATCH_CONTRACT_LOCAL_SYMBOLS=btcusdt ...
 EXPOSE 31015
 ENTRYPOINT ["match-contract"]

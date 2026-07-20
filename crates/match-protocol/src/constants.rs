@@ -66,6 +66,15 @@ pub const ORDER_FORM_IOC: i8 = 4;
 /// FOK order form.
 pub const ORDER_FORM_FOK: i8 = 5;
 
+/// Valid order forms accepted by the match engine.
+pub const ORDER_FORMS: &[i8] = &[
+    ORDER_FORM_LIMIT,
+    ORDER_FORM_MARKET_PRICE,
+    ORDER_FORM_POST_ONLY,
+    ORDER_FORM_IOC,
+    ORDER_FORM_FOK,
+];
+
 /// Depth snapshot size for no-deal topic.
 pub const NO_DEAL_NUMBER: i32 = 20;
 /// Depth snapshot size for deeps topic.

@@ -73,9 +73,9 @@ impl HpEngine {
                 side,
                 qty_lot,
                 ts,
-                max_levels,
+                max_fills,
                 client_id,
-            } => self.on_market(side, qty_lot, ts, max_levels, client_id),
+            } => self.on_market(side, qty_lot, ts, max_fills, client_id),
         }
         &self.events
     }
@@ -86,6 +86,7 @@ impl HpEngine {
             self.drop_client_mappings_for_slot(slot);
             self.events.push(HpEvent::Revoke {
                 id: slot,
+                client_id: id,
                 reason: 0,
             });
         }
@@ -99,6 +100,9 @@ impl HpEngine {
     #[inline(never)]
     fn on_limit(&mut self, side: Side, price_tick: i64, qty_lot: i64, ts: u64, client_id: u64) {
         if qty_lot <= 0 {
+            return;
+        }
+        if self.client_to_id.contains_key(&client_id) {
             return;
         }
         let order = HpOrder {
@@ -124,6 +128,7 @@ impl HpEngine {
             self.book.rest(taker_id);
             self.events.push(HpEvent::Rest {
                 id: taker_id,
+                client_id,
                 side,
                 price_tick,
                 qty_lot: remaining,
@@ -141,10 +146,13 @@ impl HpEngine {
         side: Side,
         qty_lot: i64,
         ts: u64,
-        max_levels: Option<u32>,
+        max_fills: Option<u32>,
         client_id: u64,
     ) {
         if qty_lot <= 0 {
+            return;
+        }
+        if self.client_to_id.contains_key(&client_id) {
             return;
         }
         let order = HpOrder {
@@ -160,21 +168,34 @@ impl HpEngine {
         self.client_to_id.insert(client_id, taker_id);
 
         match side {
-            Side::Buy => self.match_buy(taker_id, None, max_levels),
-            Side::Sell => self.match_sell(taker_id, None, max_levels),
+            Side::Buy => self.match_buy(taker_id, None, max_fills),
+            Side::Sell => self.match_sell(taker_id, None, max_fills),
         }
 
-        // Market never rests; drop leftover taker slot.
+        let remaining = defensive::remaining_open(self.book.store(), taker_id);
+        if remaining > 0 {
+            self.events.push(HpEvent::Revoke {
+                id: taker_id,
+                client_id,
+                reason: 1,
+            });
+        }
         self.book.store_mut().remove(taker_id);
         self.client_to_id.remove(&client_id);
     }
 
     /// Match a buy taker. `limit_tick = None` means market (no price cap).
+    /// `max_fills` limits number of fills (match-core gear semantics).
     #[inline(never)]
-    fn match_buy(&mut self, taker_id: u64, limit_tick: Option<i64>, max_levels: Option<u32>) {
-        let mut levels_seen = 0u32;
-        let mut current_level: Option<i64> = None;
+    fn match_buy(&mut self, taker_id: u64, limit_tick: Option<i64>, max_fills: Option<u32>) {
+        let mut fill_count = 0u32;
+        let taker_client = defensive::client_id_or_0(self.book.store(), taker_id);
         loop {
+            if let Some(max) = max_fills {
+                if fill_count >= max {
+                    break;
+                }
+            }
             let Some(ask_tick) = self.book.best_ask() else {
                 break;
             };
@@ -182,9 +203,6 @@ impl HpEngine {
                 if ask_tick > lim {
                     break;
                 }
-            }
-            if !Self::note_level(&mut current_level, ask_tick, &mut levels_seen, max_levels) {
-                break;
             }
             // Empty FIFO while best_* is set (corrupt) — covered by unit tests.
             let Some(maker_id) = self.book.front_id(Side::Sell, ask_tick) else {
@@ -197,27 +215,42 @@ impl HpEngine {
             }
             let fill_qty = maker_open.min(taker_open);
             let maker_client = defensive::client_id_or_0(self.book.store(), maker_id);
-            // Maker price.
+            defensive::debit_taker(self.book.store_mut(), taker_id, fill_qty);
+            let maker_gone = self.book.fill_order(maker_id, fill_qty).is_none();
+            let maker_open_after = if maker_gone {
+                0
+            } else {
+                defensive::open_lot_or_0(self.book.store(), maker_id)
+            };
+            let taker_open_after = defensive::open_lot_or_0(self.book.store(), taker_id);
             self.events.push(HpEvent::Fill {
                 maker_id,
                 taker_id,
+                maker_client_id: maker_client,
+                taker_client_id: taker_client,
                 price_tick: ask_tick,
                 qty_lot: fill_qty,
+                maker_open_lot: maker_open_after,
+                taker_open_lot: taker_open_after,
             });
-            defensive::debit_taker(self.book.store_mut(), taker_id, fill_qty);
-            if Self::should_drop_maker_client(self.book.fill_order(maker_id, fill_qty).is_none(), maker_client)
-            {
+            if Self::should_drop_maker_client(maker_gone, maker_client) {
                 self.client_to_id.remove(&maker_client);
             }
+            fill_count += 1;
         }
     }
 
     /// Match a sell taker. `limit_tick = None` means market (no price floor).
     #[inline(never)]
-    fn match_sell(&mut self, taker_id: u64, limit_tick: Option<i64>, max_levels: Option<u32>) {
-        let mut levels_seen = 0u32;
-        let mut current_level: Option<i64> = None;
+    fn match_sell(&mut self, taker_id: u64, limit_tick: Option<i64>, max_fills: Option<u32>) {
+        let mut fill_count = 0u32;
+        let taker_client = defensive::client_id_or_0(self.book.store(), taker_id);
         loop {
+            if let Some(max) = max_fills {
+                if fill_count >= max {
+                    break;
+                }
+            }
             let Some(bid_tick) = self.book.best_bid() else {
                 break;
             };
@@ -225,9 +258,6 @@ impl HpEngine {
                 if bid_tick < lim {
                     break;
                 }
-            }
-            if !Self::note_level(&mut current_level, bid_tick, &mut levels_seen, max_levels) {
-                break;
             }
             let Some(maker_id) = self.book.front_id(Side::Buy, bid_tick) else {
                 break;
@@ -239,17 +269,28 @@ impl HpEngine {
             }
             let fill_qty = maker_open.min(taker_open);
             let maker_client = defensive::client_id_or_0(self.book.store(), maker_id);
+            defensive::debit_taker(self.book.store_mut(), taker_id, fill_qty);
+            let maker_gone = self.book.fill_order(maker_id, fill_qty).is_none();
+            let maker_open_after = if maker_gone {
+                0
+            } else {
+                defensive::open_lot_or_0(self.book.store(), maker_id)
+            };
+            let taker_open_after = defensive::open_lot_or_0(self.book.store(), taker_id);
             self.events.push(HpEvent::Fill {
                 maker_id,
                 taker_id,
+                maker_client_id: maker_client,
+                taker_client_id: taker_client,
                 price_tick: bid_tick,
                 qty_lot: fill_qty,
+                maker_open_lot: maker_open_after,
+                taker_open_lot: taker_open_after,
             });
-            defensive::debit_taker(self.book.store_mut(), taker_id, fill_qty);
-            if Self::should_drop_maker_client(self.book.fill_order(maker_id, fill_qty).is_none(), maker_client)
-            {
+            if Self::should_drop_maker_client(maker_gone, maker_client) {
                 self.client_to_id.remove(&maker_client);
             }
+            fill_count += 1;
         }
     }
 
@@ -258,51 +299,18 @@ impl HpEngine {
     fn should_drop_maker_client(maker_gone: bool, maker_client: u64) -> bool {
         maker_gone && maker_client != 0
     }
+}
 
-    /// Advance level cursor / enforce `max_levels`. Returns `false` when the walk must stop.
-    fn note_level(
-        current_level: &mut Option<i64>,
-        tick: i64,
-        levels_seen: &mut u32,
-        max_levels: Option<u32>,
-    ) -> bool {
-        if *current_level == Some(tick) {
-            return true;
-        }
-        if let Some(max) = max_levels {
-            if *levels_seen >= max {
-                return false;
-            }
-        }
-        *current_level = Some(tick);
-        *levels_seen += 1;
-        true
+impl Default for HpEngine {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn note_level_truth_table() {
-        let mut cur = None;
-        let mut seen = 0u32;
-        assert!(HpEngine::note_level(&mut cur, 10, &mut seen, Some(2)));
-        assert_eq!(cur, Some(10));
-        assert_eq!(seen, 1);
-        // Same tick: no new level.
-        assert!(HpEngine::note_level(&mut cur, 10, &mut seen, Some(2)));
-        assert_eq!(seen, 1);
-        assert!(HpEngine::note_level(&mut cur, 11, &mut seen, Some(2)));
-        assert_eq!(seen, 2);
-        // Max levels reached.
-        assert!(!HpEngine::note_level(&mut cur, 12, &mut seen, Some(2)));
-        // No max: always allow new levels.
-        let mut cur2 = Some(1);
-        let mut seen2 = 5;
-        assert!(HpEngine::note_level(&mut cur2, 2, &mut seen2, None));
-    }
 
     #[test]
     fn match_buy_breaks_on_empty_fifo_at_best() {
@@ -319,10 +327,14 @@ mod tests {
             side: Side::Buy,
             qty_lot: 1,
             ts: 2,
-            max_levels: None,
+            max_fills: None,
             client_id: 2,
         });
-        assert!(ev.is_empty());
+        // No fills; market leftover revoked.
+        assert!(ev.iter().all(|e| !matches!(e, HpEvent::Fill { .. })));
+        assert!(ev
+            .iter()
+            .any(|e| matches!(e, HpEvent::Revoke { reason: 1, .. })));
     }
 
     #[test]
@@ -340,10 +352,13 @@ mod tests {
             side: Side::Sell,
             qty_lot: 1,
             ts: 2,
-            max_levels: None,
+            max_fills: None,
             client_id: 2,
         });
-        assert!(ev.is_empty());
+        assert!(ev.iter().all(|e| !matches!(e, HpEvent::Fill { .. })));
+        assert!(ev
+            .iter()
+            .any(|e| matches!(e, HpEvent::Revoke { reason: 1, .. })));
     }
 
     #[test]
@@ -361,17 +376,29 @@ mod tests {
             side: Side::Buy,
             qty_lot: 1,
             ts: 2,
-            max_levels: None,
+            max_fills: None,
             client_id: 2,
+        });
+        assert!(ev.iter().all(|e| !matches!(e, HpEvent::Fill { .. })));
+    }
+
+    #[test]
+    fn duplicate_client_id_is_rejected() {
+        let mut e = HpEngine::new();
+        e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 100,
+            qty_lot: 1,
+            ts: 1,
+            client_id: 42,
+        });
+        let ev = e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 101,
+            qty_lot: 1,
+            ts: 2,
+            client_id: 42,
         });
         assert!(ev.is_empty());
     }
 }
-
-impl Default for HpEngine {
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-

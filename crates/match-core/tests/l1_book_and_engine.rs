@@ -89,7 +89,17 @@ fn engine_invalid_order_type_rest_only_no_events() {
 #[test]
 fn compare_same_order_no_is_equal_for_book_ordering() {
     let mut book = OrderBook::new();
-    book.insert(order(Side::Buy, "100", "same", 1, "1"));
-    book.insert(order(Side::Buy, "100", "same", 2, "1"));
+    assert!(book.insert(order(Side::Buy, "100", "same", 1, "1")));
+    assert!(!book.insert(order(Side::Buy, "100", "same", 2, "1")));
     assert_eq!(book.depth_levels(Side::Buy, 10).len(), 1);
+}
+
+#[test]
+fn engine_rejects_duplicate_trust_order_no() {
+    let mut eng = Engine::new();
+    let events1 = eng.on_order(BbOrder::test_limit(Side::Buy, dec("100"), "dup", 1, "1"));
+    assert!(events1.is_empty());
+    let events2 = eng.on_order(BbOrder::test_limit(Side::Buy, dec("101"), "dup", 2, "1"));
+    assert!(events2.is_empty());
+    assert_eq!(eng.depth_levels("btcusdt", Side::Buy, 20).len(), 1);
 }

@@ -57,7 +57,7 @@ fn engine_reuses_event_buffer_across_calls() {
         side: Side::Buy,
         qty_lot: 10,
         ts: 100,
-        max_levels: None,
+        max_fills: None,
         client_id: 99,
     })
     .unwrap();

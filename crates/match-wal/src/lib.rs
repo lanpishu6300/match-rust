@@ -169,7 +169,9 @@ fn flush_loop(path: PathBuf, rx: Receiver<Msg>) {
             match rx.recv_timeout(batch_deadline.saturating_sub(last_write.elapsed())) {
                 Ok(m) => Some(m),
                 Err(RecvTimeoutError::Timeout) => {
-                    let _ = write_buf(&mut file, &mut buf);
+                    if let Err(e) = write_buf(&mut file, &mut buf) {
+                        eprintln!("match-wal: flush on timeout failed: {e}");
+                    }
                     last_write = Instant::now();
                     continue;
                 }
@@ -178,7 +180,9 @@ fn flush_loop(path: PathBuf, rx: Receiver<Msg>) {
         };
 
         let Some(msg) = msg else {
-            let _ = write_buf(&mut file, &mut buf);
+            if let Err(e) = write_buf(&mut file, &mut buf) {
+                eprintln!("match-wal: final flush failed: {e}");
+            }
             break;
         };
 
@@ -186,7 +190,9 @@ fn flush_loop(path: PathBuf, rx: Receiver<Msg>) {
             Msg::Rec(r) => {
                 buf.extend_from_slice(&r.encode());
                 if buf.len() >= 32 * 1024 {
-                    let _ = write_buf(&mut file, &mut buf);
+                    if let Err(e) = write_buf(&mut file, &mut buf) {
+                        eprintln!("match-wal: batch write failed: {e}");
+                    }
                     last_write = Instant::now();
                 }
             }
@@ -196,7 +202,9 @@ fn flush_loop(path: PathBuf, rx: Receiver<Msg>) {
                 let _ = ack.send(res);
             }
             Msg::Shutdown => {
-                let _ = write_buf(&mut file, &mut buf);
+                if let Err(e) = write_buf(&mut file, &mut buf) {
+                    eprintln!("match-wal: shutdown flush failed: {e}");
+                }
                 break;
             }
         }
@@ -209,6 +217,8 @@ fn write_buf(file: &mut std::fs::File, buf: &mut Vec<u8>) -> io::Result<()> {
     }
     file.write_all(buf)?;
     file.flush()?;
+    // Crash-durable for Sync mode and Flush acks.
+    file.sync_all()?;
     buf.clear();
     Ok(())
 }
