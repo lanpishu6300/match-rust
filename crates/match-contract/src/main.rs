@@ -117,7 +117,7 @@ fn build_transport(
             Ok((sink, source))
         }
         MqTransport::Rocketmq => Err(
-            "RocketMQ transport is not available yet (see docs/rmq-spike.md); refusing to start with a silent memory fallback"
+            "RocketMQ transport is not wired yet (see docs/rmq-spike.md); set transport: memory for local runs"
                 .into(),
         ),
     }

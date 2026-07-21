@@ -46,6 +46,10 @@ make ci
 - `docs: …`
 - `chore: …`
 
+## 文风
+
+注释、文档与 PR 描述用正常维护者口吻。不要把编辑器/Agent 产品名、“AI 生成”声明或技能路由横幅写进仓库。详见 [AGENTS.md](AGENTS.md)。
+
 ## 许可
 
 贡献即表示同意以 **Apache License 2.0** 授权（见 `LICENSE`）。

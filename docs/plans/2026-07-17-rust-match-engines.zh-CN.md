@@ -2,8 +2,6 @@
 
 **English：** [2026-07-17-rust-match-engines.md](./2026-07-17-rust-match-engines.md)
 
-> **致代理执行者：** 必用子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans，按任务逐步实现本计划。步骤使用复选框（`- [ ]`）语法跟踪。
-
 **目标：** 交付可替换 Java `java-contract-match` 的 Rust 进程，在可观测结果上等价（成交、剩余量、撤单路径、深度档位），经黄金回放验证，再按交易对灰度切换。
 
 **架构：** Cargo workspace `match-rust`，共享 `match-core` + `match-protocol`，合约二进制 `match-contract`（MQ/Redis/RPC 外壳），以及用于 L1/L2 门禁的 `match-replay`。从 Java handler 移植控制流；除非另有独立修复任务，否则保留已知 Java bug。

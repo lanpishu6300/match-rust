@@ -55,7 +55,7 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
             break;
         }
         let best_buy = book.first(Side::Buy).unwrap();
-        // IOC must not match via another resting buy (fixes P0-2).
+        // Not our order at best — revoke remainder; do not ratherThan a foreign buy.
         if order_form == ORDER_FORM_IOC && best_buy.trust_order_no != order_no {
             push_revoke_if_present(
                 &mut events,
@@ -133,8 +133,7 @@ mod tests {
 
     #[test]
     fn ioc_does_not_match_via_unrelated_resting_buy_on_crossed_book() {
-        // Artificially crossed book (e.g. restore): older buy is best. IOC must not
-        // drive ratherThan on that buy (former Java P0-2).
+        // Pre-crossed book (restore-shaped): older buy is best; IOC must revoke only.
         let mut book = OrderBook::new();
         book.insert(BbOrder::test_limit(Side::Buy, dec("100"), "b_rest", 1, "1"));
         book.insert(BbOrder::test_limit(Side::Sell, dec("100"), "s1", 2, "2"));
@@ -145,7 +144,7 @@ mod tests {
 
         assert!(
             !events.iter().any(|e| matches!(e, MatchEvent::Fill { .. })),
-            "must not fill using the resting buy as taker"
+            "IOC must not take as if the resting buy were the taker"
         );
         assert!(events.iter().any(
             |e| matches!(e, MatchEvent::Revoke { order_no, reason, .. } if order_no == "b_ioc" && reason == "ioc_remainder")

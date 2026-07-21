@@ -53,7 +53,7 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
             break;
         }
         let best_sell = book.first(Side::Sell).unwrap();
-        // IOC must not match via another resting sell (fixes P0-2).
+        // Not our order at best — revoke remainder; do not ratherThan a foreign sell.
         if order_form == ORDER_FORM_IOC && best_sell.trust_order_no != order_no {
             push_revoke_if_present(
                 &mut events,

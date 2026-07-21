@@ -1,8 +1,7 @@
 //! Advanced order handlers (PostOnly / IOC / FOK) ported from Java Height*/Fok*.
 //!
-//! IOC loops break once the original IOC order is fully filled or no longer the
-//! best on its side (fixes former Java quirk P0-2 that could match unrelated
-//! resting orders after the IOC completed).
+//! IOC stops once the original order is fully filled or is no longer best on its
+//! side, so the loop cannot continue matching unrelated resting orders.
 
 mod fok_buy;
 mod fok_sell;

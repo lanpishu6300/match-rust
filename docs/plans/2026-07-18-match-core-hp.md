@@ -2,8 +2,6 @@
 
 **中文：** [2026-07-18-match-core-hp.zh-CN.md](./2026-07-18-match-core-hp.zh-CN.md)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Add a dual-track high-performance matching core (`match-core-hp`) with fixed-point price-level books and a `match-bench` crate that proves ≥5× throughput vs `match-core` on hot scenarios, without changing production defaults.
 
 **Architecture:** New crate `match-core-hp` owns `HpEngine` (i64 ticks/lots, price-level + FIFO, preallocated order slots). Thin `adapter` converts protocol/`BbOrder` only at boundaries. `match-bench` runs identical logical sequences on core vs hp. `match-contract` stays on `match-core`.
@@ -181,7 +179,7 @@ impl HpEngine {
 pub enum HpCommand {
     Limit { side: Side, price_tick: i64, qty_lot: i64, ts: u64, client_id: u64 },
     Cancel { id: u64 },
-    Market { side: Side, qty_lot: i64, ts: u64, max_levels: Option<u32>, client_id: u64 },
+    Market { side: Side, qty_lot: i64, ts: u64, max_fills: Option<u32>, client_id: u64 },
 }
 ```
 
@@ -226,7 +224,7 @@ Match price = **maker** tick (resting order price).
 - Create: `crates/match-core-hp/tests/adapter_bborder.rs`
 - Add dep: `match-protocol`, `bigdecimal` (adapter only)
 
-- [ ] **Step 1: Market tests** — market buy walks asks until qty done or book empty; optional `max_levels`.
+- [ ] **Step 1: Market tests** — market buy walks asks until qty done or book empty; optional `max_fills`.
 
 - [ ] **Step 2: Depth test** — two bids same tick aggregate lots.
 
@@ -316,7 +314,7 @@ Single-threaded test: submit N → `run_once` loop → assert fills.
 
 **Files:**
 - Modify: `README.md` — hp section: dual-track warning, how to bench
-- Modify: `docs/superpowers/specs/2026-07-18-match-core-hp-design.md` status if needed
+- Modify: `docs/specs/2026-07-18-match-core-hp-design.md` status if needed
 - Grep: ensure `match-contract` Cargo.toml has **no** `match-core-hp` dependency
 
 - [ ] **Step 1: README** note production default unchanged

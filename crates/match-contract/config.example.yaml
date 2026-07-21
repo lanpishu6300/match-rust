@@ -9,7 +9,7 @@ health:
 rocketmq:
   name_server: "192.168.0.241:9876"
   consumer_group: "usdt_contract_match_channel_one_group"
-  # memory | rocketmq — `rocketmq` fails closed until the adapter is wired (docs/rmq-spike.md)
+  # memory | rocketmq — rocketmq exits on start until the adapter lands (docs/rmq-spike.md)
   transport: memory
   # optional file-channel root: writes to {memory_dir}/out, preload from {memory_dir}/in
   # memory_dir: "/tmp/match-contract-mq"

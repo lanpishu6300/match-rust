@@ -34,8 +34,8 @@ impl BootstrapReady {
     }
 }
 
-/// Spawn the health/metrics HTTP server after binding.
-/// Returns `Err` if the port cannot be bound (fail-closed for ops probes).
+/// Bind then serve `/healthz`, `/readyz`, `/metrics`.
+/// Returns `Err` if the listen port is unavailable.
 pub async fn spawn_server(
     port: u16,
     ready: Arc<AtomicBool>,

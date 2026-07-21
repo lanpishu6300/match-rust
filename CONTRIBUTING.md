@@ -43,6 +43,10 @@ Prefer Conventional Commits style:
 - `docs: …`
 - `chore: …`
 
+## Prose
+
+Keep comments, docs, and PR text in a normal maintainer voice. Do not leave editor/agent product names, “AI generated” disclaimers, or skill-routing banners in the tree. See [AGENTS.md](AGENTS.md).
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the **Apache License 2.0** (see `LICENSE`).

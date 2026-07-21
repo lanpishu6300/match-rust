@@ -125,7 +125,7 @@ orders: generational / 预分配 slot 数组（id → HpOrder）
 |------|------|
 | 限价挂/吃、部成、价时优先 | ✅ |
 | 撤单 | ✅ |
-| 市价（吃尽或可选 max_levels） | ✅ |
+| 市价（吃尽或可选 max_fills / gear） | ✅ |
 | 深度前 N 档 | ✅ |
 | PostOnly / IOC / FOK | 二期 |
 | Java quirk | ❌ |

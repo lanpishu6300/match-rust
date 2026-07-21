@@ -2,8 +2,6 @@
 
 **中文：** [2026-07-18-pe-optimizations.zh-CN.md](./2026-07-18-pe-optimizations.zh-CN.md)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Land Phase A→B→C from [2026-07-18-pe-optimizations-design.md](../specs/2026-07-18-pe-optimizations-design.md): best-price cache + level pool + optional ART, then `hp-engine` spans, then async `match-wal`.
 
 **Architecture:** Keep default `BTreeMap` book; add `LevelIndex` trait and `art` feature. Production `match-contract` stays on `match-core` unless `hp-engine`. WAL is a separate crate, async-only on the hot path.

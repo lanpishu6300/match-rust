@@ -2,8 +2,6 @@
 
 **English：** [2026-07-18-match-core-hp.md](./2026-07-18-match-core-hp.md)
 
-> **致代理执行者：** 必用子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans，按任务逐步实现本计划。步骤使用复选框（`- [ ]`）语法跟踪。
-
 **目标：** 增加双轨高性能撮合核（`match-core-hp`），采用定点价格档位簿，以及 `match-bench` crate，在热场景上证明相对 `match-core` ≥5× 吞吐，且不改变生产默认路径。
 
 **架构：** 新 crate `match-core-hp` 拥有 `HpEngine`（i64 ticks/lots、价格档位 + FIFO、预分配订单槽）。薄 `adapter` 仅在边界转换 protocol/`BbOrder`。`match-bench` 对 core 与 hp 跑相同逻辑序列。`match-contract` 仍走 `match-core`。
@@ -181,7 +179,7 @@ impl HpEngine {
 pub enum HpCommand {
     Limit { side: Side, price_tick: i64, qty_lot: i64, ts: u64, client_id: u64 },
     Cancel { id: u64 },
-    Market { side: Side, qty_lot: i64, ts: u64, max_levels: Option<u32>, client_id: u64 },
+    Market { side: Side, qty_lot: i64, ts: u64, max_fills: Option<u32>, client_id: u64 },
 }
 ```
 
@@ -226,7 +224,7 @@ fn cancel_removes_resting() { … }
 - 创建：`crates/match-core-hp/tests/adapter_bborder.rs`
 - 增加依赖：`match-protocol`、`bigdecimal`（仅 adapter）
 
-- [ ] **Step 1: 市价测试** — 市价买沿 ask 吃到 qty 完成或簿空；可选 `max_levels`。
+- [ ] **Step 1: 市价测试** — 市价买沿 ask 吃到 qty 完成或簿空；可选 `max_fills`。
 
 - [ ] **Step 2: 深度测试** — 两笔同 tick 买单聚合 lots。
 
@@ -316,7 +314,7 @@ impl HpWorker {
 
 **文件：**
 - 修改：`README.md` — hp 小节：双轨警告、如何 bench
-- 修改：`docs/superpowers/specs/2026-07-18-match-core-hp-design.md` 状态（若需要）
+- 修改：`docs/specs/2026-07-18-match-core-hp-design.md` 状态（若需要）
 - Grep：确认 `match-contract` Cargo.toml **没有** `match-core-hp` 依赖
 
 - [ ] **Step 1: README** 注明生产默认不变

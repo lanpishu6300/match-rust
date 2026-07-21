@@ -2,8 +2,6 @@
 
 **English：** [2026-07-18-pe-optimizations.md](./2026-07-18-pe-optimizations.md)
 
-> **致代理执行者：** 必用子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans，按任务逐步实现本计划。步骤使用复选框（`- [ ]`）语法跟踪。
-
 **目标：** 落地 [2026-07-18-pe-optimizations-design.md](../specs/2026-07-18-pe-optimizations-design.md) 的 Phase A→B→C：最优价缓存 + 档位对象池 + 可选 ART，然后是 `hp-engine` spans，再是异步 `match-wal`。
 
 **架构：** 默认保留 `BTreeMap` 簿；增加 `LevelIndex` trait 与 `art` feature。生产 `match-contract` 仍走 `match-core`，除非启用 `hp-engine`。WAL 为独立 crate，热路径仅异步。

@@ -217,7 +217,6 @@ fn write_buf(file: &mut std::fs::File, buf: &mut Vec<u8>) -> io::Result<()> {
     }
     file.write_all(buf)?;
     file.flush()?;
-    // Crash-durable for Sync mode and Flush acks.
     file.sync_all()?;
     buf.clear();
     Ok(())

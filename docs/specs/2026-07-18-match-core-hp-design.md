@@ -125,7 +125,7 @@ orders: generational / preallocated slot array (id → HpOrder)
 |------------|-----------|
 | Limit rest/take, partial fill, price-time priority | ✅ |
 | Cancel | ✅ |
-| Market (exhaust or optional max_levels) | ✅ |
+| Market (exhaust or optional max_fills / gear) | ✅ |
 | Depth top N levels | ✅ |
 | PostOnly / IOC / FOK | Phase two |
 | Java quirk | ❌ |

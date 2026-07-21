@@ -24,7 +24,7 @@ fn market_buy_handle(book: &mut OrderBook) -> Option<MatchEvent> {
 }
 
 fn gear_of(order: &BbOrder) -> i32 {
-    // Protocol validate requires gear >= 1 for market; default 1 if missing defensively.
+    // Inbound validate requires gear >= 1; keep 1 if somehow missing.
     order.gear.filter(|g| *g >= 1).unwrap_or(1)
 }
 
@@ -74,7 +74,7 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
         // LLVM emits a sticky uncovered true-counter here alongside a covered twin;
         // helper excluded so only the caller stop decision is scored.
         if market_buy_not_our_order(best_buy, &order_no) {
-            // Another market (or non-ours) is best — do not leave this taker resting at MAX.
+            // Best is not this taker — revoke so MAX-priced market does not rest.
             push_revoke_if_present(
                 &mut events,
                 revoke_by_no(book, &order_no, Side::Buy, "market_blocked"),
