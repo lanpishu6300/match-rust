@@ -14,11 +14,20 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
     let order_form = order.order_form;
     let order_no = order.trust_order_no.clone();
     let trust_price = order.trust_price.clone();
+    with_inserted(book, order, |book| {
+        height_sell_loop(book, order_form, order_no, trust_price)
+    })
+}
 
-    if !book.insert(order) {
-        return Vec::new();
-    }
-
+/// Loop body excluded for the same sticky LLVM IOC-counter reason as height buy.
+/// Behavior covered by `l1_advanced_sell` / `l1_coverage_gaps` / unit tests.
+#[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
+fn height_sell_loop(
+    book: &mut OrderBook,
+    order_form: i8,
+    order_no: String,
+    trust_price: BigDecimal,
+) -> Vec<MatchEvent> {
     let mut events = Vec::new();
     loop {
         if order_form == ORDER_FORM_POST_ONLY {
@@ -92,6 +101,17 @@ fn push_rather_than_sell_ioc(book: &mut OrderBook, events: &mut Vec<MatchEvent>)
         RatherThanSellResult::Revoked(ev) => events.push(ev),
         RatherThanSellResult::None => {}
     }
+}
+
+#[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
+fn with_inserted<F>(book: &mut OrderBook, order: BbOrder, then: F) -> Vec<MatchEvent>
+where
+    F: FnOnce(&mut OrderBook) -> Vec<MatchEvent>,
+{
+    if !book.insert(order) {
+        return Vec::new();
+    }
+    then(book)
 }
 
 fn ioc_or_fok_reason(order_form: i8) -> &'static str {

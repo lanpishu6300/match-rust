@@ -303,6 +303,17 @@ impl Book {
             }
         }
     }
+
+    #[cfg(any(test, coverage))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn test_set_best_bid_front(&mut self, bogus_id: u64) {
+        if let Some(tick) = self.best_bid_tick {
+            if let Some(level) = self.bids.get_mut(tick) {
+                level.ids.clear();
+                level.ids.push_back(bogus_id);
+            }
+        }
+    }
 }
 
 impl Default for Book {
