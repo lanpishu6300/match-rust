@@ -3,7 +3,8 @@
 # Enable with: git config core.hooksPath .githooks
 msg_file=$1
 tmp=$(mktemp) || exit 0
-grep -v '^Co-authored-by: Cursor <cursoragent@cursor.com>$' "$msg_file" >"$tmp" 2>/dev/null || {
+# Match common editor-injected co-author lines without keeping product names in docs.
+grep -viE '^Co-authored-by:.*<[^>]*cursor[^>]*>$' "$msg_file" >"$tmp" 2>/dev/null || {
   rm -f "$tmp"
   exit 0
 }
