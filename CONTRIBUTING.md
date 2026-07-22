@@ -45,7 +45,17 @@ Prefer Conventional Commits style:
 
 ## Prose
 
-Keep comments, docs, and PR text in a normal maintainer voice. Do not leave editor/agent product names, “AI generated” disclaimers, or skill-routing banners in the tree. See [AGENTS.md](AGENTS.md).
+Write like a maintainer of this matching engine:
+
+- Comments explain *why* (Java parity, MQ topic shape, restore path), not change history
+- No editor or assistant product names, “AI generated” disclaimers, or skill-routing banners in code, docs, commits, or PRs
+- No automated `Co-authored-by` trailers from editors in commit messages (see `.githooks/`)
+
+Optional local hook (once per clone):
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## License
 

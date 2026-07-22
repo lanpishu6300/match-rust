@@ -48,7 +48,17 @@ make ci
 
 ## 文风
 
-注释、文档与 PR 描述用正常维护者口吻。不要把编辑器/Agent 产品名、“AI 生成”声明或技能路由横幅写进仓库。详见 [AGENTS.md](AGENTS.md)。
+按本撮合引擎维护者口吻写：
+
+- 注释写清 *为什么*（Java 对等、MQ topic 形态、恢复路径），不写变更流水账
+- 代码、文档、提交与 PR 中不出现编辑器/助手产品名、“AI 生成”声明或技能路由横幅
+- 提交信息不要带编辑器自动插入的 `Co-authored-by`（见 `.githooks/`）
+
+可选本地 hook（每个 clone 执行一次）：
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## 许可
 

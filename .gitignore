@@ -5,6 +5,7 @@ Cargo.lock.bak
 # IDE / OS
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
