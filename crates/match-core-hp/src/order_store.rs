@@ -5,6 +5,7 @@ use crate::types::HpOrder;
 pub struct OrderStore {
     slots: Vec<Option<HpOrder>>,
     free: Vec<u64>,
+    live: usize,
 }
 
 impl OrderStore {
@@ -12,14 +13,21 @@ impl OrderStore {
         Self {
             slots: Vec::new(),
             free: Vec::new(),
+            live: 0,
         }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             slots: Vec::with_capacity(cap),
-            free: Vec::new(),
+            free: Vec::with_capacity(cap / 2),
+            live: 0,
         }
+    }
+
+    /// Number of occupied slots (not free-list size).
+    pub fn live_len(&self) -> usize {
+        self.live
     }
 
     /// Insert order; assigns and returns `id` (1-based slot index).
@@ -33,6 +41,7 @@ impl OrderStore {
         order.id = id;
         let idx = (id - 1) as usize;
         self.slots[idx] = Some(order);
+        self.live += 1;
         id
     }
 
@@ -50,6 +59,7 @@ impl OrderStore {
         let idx = id.checked_sub(1)? as usize;
         let order = self.slots.get_mut(idx)?.take()?;
         self.free.push(id);
+        self.live -= 1;
         Some(order)
     }
 

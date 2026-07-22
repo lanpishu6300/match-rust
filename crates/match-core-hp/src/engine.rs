@@ -1,7 +1,7 @@
 use crate::book::Book;
 use crate::order_store::OrderStore;
 use crate::types::{HpCommand, HpEvent, HpOrder, Side};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Store lookups that only fail under corrupt engine state.
 /// Excluded from branch coverage so untaken corrupt arms do not fail the gate.
@@ -33,8 +33,8 @@ mod defensive {
 pub struct HpEngine {
     pub book: Book,
     events: Vec<HpEvent>,
-    /// External order id → store slot.
-    client_to_id: HashMap<u64, u64>,
+    /// External order id → store slot (resting / open orders).
+    client_to_id: FxHashMap<u64, u64>,
 }
 
 impl HpEngine {
@@ -42,7 +42,7 @@ impl HpEngine {
         Self {
             book: Book::new(),
             events: Vec::with_capacity(64),
-            client_to_id: HashMap::new(),
+            client_to_id: FxHashMap::default(),
         }
     }
 
@@ -50,8 +50,13 @@ impl HpEngine {
         Self {
             book: Book::with_capacity(order_cap),
             events: Vec::with_capacity(event_cap),
-            client_to_id: HashMap::with_capacity(order_cap),
+            client_to_id: FxHashMap::with_capacity_and_hasher(order_cap, Default::default()),
         }
+    }
+
+    /// Number of live external-id → slot mappings.
+    pub fn client_map_len(&self) -> usize {
+        self.client_to_id.len()
     }
 
     /// Process one command; returns events from this call (buffer reused).
@@ -115,7 +120,6 @@ impl HpEngine {
             client_id,
         };
         let taker_id = self.book.store_mut().insert(order);
-        self.client_to_id.insert(client_id, taker_id);
 
         match side {
             Side::Buy => self.match_buy(taker_id, client_id, Some(price_tick), None),
@@ -125,6 +129,8 @@ impl HpEngine {
         let remaining = defensive::remaining_open(self.book.store(), taker_id);
 
         if remaining > 0 {
+            // Cancel lookup only needed while the order remains on the book.
+            self.client_to_id.insert(client_id, taker_id);
             self.book.rest(taker_id);
             self.events.push(HpEvent::Rest {
                 id: taker_id,
@@ -135,7 +141,6 @@ impl HpEngine {
             });
         } else {
             self.book.store_mut().remove(taker_id);
-            self.client_to_id.remove(&client_id);
         }
     }
 
@@ -164,7 +169,6 @@ impl HpEngine {
             client_id,
         };
         let taker_id = self.book.store_mut().insert(order);
-        self.client_to_id.insert(client_id, taker_id);
 
         match side {
             Side::Buy => self.match_buy(taker_id, client_id, None, max_fills),
@@ -180,7 +184,6 @@ impl HpEngine {
             });
         }
         self.book.store_mut().remove(taker_id);
-        self.client_to_id.remove(&client_id);
     }
 
     /// Match a buy taker. `limit_tick = None` means market (no price cap).
@@ -221,7 +224,6 @@ impl HpEngine {
             };
             let fill_qty = maker_open.min(taker_open);
             taker_open -= fill_qty;
-            defensive::set_taker_open(self.book.store_mut(), taker_id, taker_open);
             let maker_gone = self.book.fill_order(maker_id, fill_qty).is_none();
             let maker_open_after = if maker_gone { 0 } else { maker_open - fill_qty };
             self.events.push(HpEvent::Fill {
@@ -239,6 +241,7 @@ impl HpEngine {
             }
             fill_count += 1;
         }
+        defensive::set_taker_open(self.book.store_mut(), taker_id, taker_open);
     }
 
     /// Match a sell taker. `limit_tick = None` means market (no price floor).
@@ -279,7 +282,6 @@ impl HpEngine {
             };
             let fill_qty = maker_open.min(taker_open);
             taker_open -= fill_qty;
-            defensive::set_taker_open(self.book.store_mut(), taker_id, taker_open);
             let maker_gone = self.book.fill_order(maker_id, fill_qty).is_none();
             let maker_open_after = if maker_gone { 0 } else { maker_open - fill_qty };
             self.events.push(HpEvent::Fill {
@@ -297,6 +299,7 @@ impl HpEngine {
             }
             fill_count += 1;
         }
+        defensive::set_taker_open(self.book.store_mut(), taker_id, taker_open);
     }
 }
 

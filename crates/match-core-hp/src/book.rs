@@ -44,13 +44,18 @@ impl Book {
     }
 
     pub fn with_capacity(order_cap: usize) -> Self {
+        let prefill = (LEVEL_POOL_CAP / 4).max(16);
+        let mut level_pool = Vec::with_capacity(LEVEL_POOL_CAP);
+        for _ in 0..prefill {
+            level_pool.push(Level::default());
+        }
         Self {
             bids: BidIndex::default(),
             asks: AskIndex::default(),
             store: OrderStore::with_capacity(order_cap),
             best_bid_tick: None,
             best_ask_tick: None,
-            level_pool: Vec::new(),
+            level_pool,
         }
     }
 
@@ -101,7 +106,13 @@ impl Book {
         if remaining < 0 {
             order.open_lot = 0;
         }
-        let level = self.level_mut(side, tick);
+        // Fills only debit existing levels.
+        let Some(level) = self.level_mut_for_remove(side, tick) else {
+            if remaining <= 0 {
+                self.store.remove(id);
+            }
+            return self.store.get(id);
+        };
         level.total_lot -= qty_lot;
         if level.total_lot < 0 {
             level.total_lot = 0;
@@ -112,7 +123,8 @@ impl Book {
             } else {
                 level.ids.retain(|&x| x != id);
             }
-            if level.ids.is_empty() {
+            let empty = level.ids.is_empty();
+            if empty {
                 self.remove_empty_level(side, tick);
             }
             self.store.remove(id);

@@ -27,6 +27,7 @@ Convention: English `Foo.md` + Chinese `Foo.zh-CN.md`, with a language switcher 
 | [2026-07-17-rust-match-engines-design.md](./specs/2026-07-17-rust-match-engines-design.md) · [中文](./specs/2026-07-17-rust-match-engines-design.zh-CN.md) | Equivalence track + cutover |
 | [2026-07-18-match-core-hp-design.md](./specs/2026-07-18-match-core-hp-design.md) · [中文](./specs/2026-07-18-match-core-hp-design.zh-CN.md) | HP dual-track |
 | [2026-07-18-pe-optimizations-design.md](./specs/2026-07-18-pe-optimizations-design.md) · [中文](./specs/2026-07-18-pe-optimizations-design.zh-CN.md) | PE-inspired A→B→C |
+| [2026-07-22-tier-sweep-design.md](./specs/2026-07-22-tier-sweep-design.md) · [中文](./specs/2026-07-22-tier-sweep-design.zh-CN.md) | Rest × stream × fill matrix |
 
 ## Plans
 
@@ -44,6 +45,8 @@ Convention: English `Foo.md` + Chinese `Foo.zh-CN.md`, with a language switcher 
 | [e2e-budget.md](./e2e-budget.md) · [中文](./e2e-budget.zh-CN.md) | L1–L5 latency budget |
 | [fair-compare.md](./fair-compare.md) · [中文](./fair-compare.zh-CN.md) | Non-zero fill-rate protocol |
 | [bench-results.md](./bench-results.md) · [中文](./bench-results.zh-CN.md) | Published numbers |
+| [perf-hotpath-2026-07.md](./perf-hotpath-2026-07.md) · [中文](./perf-hotpath-2026-07.zh-CN.md) | L1 hot-path notes |
+| [perf-tier-sweep.md](./perf-tier-sweep.md) · [中文](./perf-tier-sweep.zh-CN.md) | Tier-sweep matrix + bottlenecks |
 | [l3-shadow.md](./l3-shadow.md) · [中文](./l3-shadow.zh-CN.md) | Shadow validation |
 | [cutover-runbook.md](./cutover-runbook.md) · [中文](./cutover-runbook.zh-CN.md) | Grey cutover |
 | [rmq-spike.md](./rmq-spike.md) · [中文](./rmq-spike.zh-CN.md) | RocketMQ wiring status |

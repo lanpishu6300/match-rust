@@ -12,11 +12,14 @@
 
 ```bash
 make fair                          # fair_compare CSV, exit 1 if fill_rate ≈ 0
+make tier-quick                    # rest×stream×fill smoke (4 cells)
+make tier-sweep                    # full 27-cell matrix
 make bench                         # criterion engine_cmp
 cargo test -p match-core-hp --features art --test art_parity
 cargo run -p match-wal --release --bin wal_bench -- 100000
 ```
 
+Matrix method and numbers: [perf-tier-sweep](../../perf-tier-sweep.md).
 ## Companion C++ project
 
 [crypto-exchange](https://github.com/lanpishu6300/crypto-exchange) reports ART/SIMD microbenches. Compare only under the same fair-cross protocol and non-zero fill rate.

@@ -18,4 +18,5 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)', 'cfg(c
 thiserror = { workspace = true }
 match-protocol = { path = "../match-protocol" }
 bigdecimal = { workspace = true }
+rustc-hash = { workspace = true }
 core_affinity = { version = "0.8", optional = true }

@@ -27,6 +27,7 @@
 | [中文](./specs/2026-07-17-rust-match-engines-design.zh-CN.md) · [EN](./specs/2026-07-17-rust-match-engines-design.md) | 等价轨 + 切流 |
 | [中文](./specs/2026-07-18-match-core-hp-design.zh-CN.md) · [EN](./specs/2026-07-18-match-core-hp-design.md) | HP 双轨 |
 | [中文](./specs/2026-07-18-pe-optimizations-design.zh-CN.md) · [EN](./specs/2026-07-18-pe-optimizations-design.md) | PE 启发的 A→B→C |
+| [中文](./specs/2026-07-22-tier-sweep-design.zh-CN.md) · [EN](./specs/2026-07-22-tier-sweep-design.md) | 深度 × 流长 × 成交强度矩阵 |
 
 ## 实现计划（plans）
 
@@ -44,6 +45,8 @@
 | [中文](./e2e-budget.zh-CN.md) · [EN](./e2e-budget.md) | L1–L5 延迟预算 |
 | [中文](./fair-compare.zh-CN.md) · [EN](./fair-compare.md) | 非零成交率对打协议 |
 | [中文](./bench-results.zh-CN.md) · [EN](./bench-results.md) | 已发布数字 |
+| [中文](./perf-hotpath-2026-07.zh-CN.md) · [EN](./perf-hotpath-2026-07.md) | L1 热路径笔记 |
+| [中文](./perf-tier-sweep.zh-CN.md) · [EN](./perf-tier-sweep.md) | 分层压测矩阵与瓶颈 |
 | [中文](./l3-shadow.zh-CN.md) · [EN](./l3-shadow.md) | 影子验证 |
 | [中文](./cutover-runbook.zh-CN.md) · [EN](./cutover-runbook.md) | 灰度切流 |
 | [中文](./rmq-spike.zh-CN.md) · [EN](./rmq-spike.md) | RocketMQ 接通状态 |

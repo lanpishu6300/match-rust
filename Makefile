@@ -1,6 +1,6 @@
 # match-rust — common maintainer targets (inspired by perpetual_exchange layout)
 
-.PHONY: help test test-art clippy fmt fair bench wal-bench run-local ci cov cov-html clean
+.PHONY: help test test-art clippy fmt fair tier-quick tier-sweep bench wal-bench run-local ci cov cov-html clean
 
 help:
 	@echo "Targets:"
@@ -9,6 +9,8 @@ help:
 	@echo "  clippy      cargo clippy --workspace --all-targets"
 	@echo "  fmt         cargo fmt --all -- --check"
 	@echo "  fair        fair_compare (fill_rate > 0)"
+	@echo "  tier-quick  tier_sweep preset=quick (rest×stream×fill)"
+	@echo "  tier-sweep  tier_sweep preset=default (full 27-cell matrix)"
 	@echo "  bench       criterion engine_cmp (sample-size 20)"
 	@echo "  wal-bench   match-wal async throughput"
 	@echo "  run-local   match-contract memory transport"
@@ -31,6 +33,12 @@ fmt:
 
 fair:
 	cargo run -p match-bench --release --bin fair_compare -- --n 50000
+
+tier-quick:
+	cargo run -p match-bench --release --bin tier_sweep -- --preset quick --runs 5
+
+tier-sweep:
+	cargo run -p match-bench --release --bin tier_sweep -- --preset default --runs 5
 
 bench:
 	cargo bench -p match-bench --bench engine_cmp -- --sample-size 20

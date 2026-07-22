@@ -68,3 +68,7 @@ cargo run -p match-bench --release --bin fair_compare -- --n 50000
 撤单 O(1) map、撮合环收紧、档位 `get_or_insert_with`。细节与压测指标：[`perf-hotpath-2026-07.zh-CN.md`](./perf-hotpath-2026-07.zh-CN.md)。
 
 `fair_cross`（HP，n=50000，fill_rate=0.5，8 次中位数）：约 54.3 ns/order（约 18–19M orders/s）。同日改动前基线约 56.3 ns/order。
+
+## 分层压测（2026-07-22）
+
+挂单深度 × 流长 × 成交强度（`tier_sweep`）。方法、结果与瓶颈：[`perf-tier-sweep.zh-CN.md`](./perf-tier-sweep.zh-CN.md)。Quick high 格约 143 → 81 ns/order；最慢仍是 high × 200k stream（约 180–190 ns/order）。

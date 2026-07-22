@@ -22,3 +22,7 @@ harness = false
 [[bin]]
 name = "fair_compare"
 path = "src/bin/fair_compare.rs"
+
+[[bin]]
+name = "tier_sweep"
+path = "src/bin/tier_sweep.rs"

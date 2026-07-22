@@ -915,6 +915,7 @@ dependencies = [
  "bigdecimal",
  "core_affinity",
  "match-protocol",
+ "rustc-hash",
  "thiserror 1.0.69",
 ]
 

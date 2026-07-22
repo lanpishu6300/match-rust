@@ -1,0 +1,12 @@
+    Finished `release` profile [optimized] target(s) in 0.12s
+     Running `target/release/tier_sweep --preset quick --runs 5`
+rest,stream,tier,n_fills,fill_rate,elapsed_ns,orders_per_sec,fills_per_sec,ns_per_order,peak_mapped
+1000,10000,low,1000,0.100000,579875,17245095.926,1724509.593,57.987,9001
+10000,50000,mid,25000,0.500000,2138250,23383608.091,11691804.045,42.765,35000
+10000,50000,high,100000,2.000000,7155459,6987671.930,13975343.860,143.109,110000
+100000,50000,mid,25000,0.500000,2696250,18544274.455,9272137.228,53.925,125000
+# slowest by ns/order (top 5)
+# rest=10000 stream=50000 tier=high ns/order=143.1 orders/s=6987672 peak_mapped=110000
+# rest=1000 stream=10000 tier=low ns/order=58.0 orders/s=17245096 peak_mapped=9001
+# rest=100000 stream=50000 tier=mid ns/order=53.9 orders/s=18544274 peak_mapped=125000
+# rest=10000 stream=50000 tier=mid ns/order=42.8 orders/s=23383608 peak_mapped=35000
