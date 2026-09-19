@@ -115,3 +115,48 @@ DPDK rx   → 3 帧 / 3 消息 / seqs=[1,2,3] / 无 gap / last_seq=3           �
 - macOS 无 DPDK，本仓库集成测试全部基于内核 UDP（已覆盖协议正确性）。
 - DPDK 环境需 root / 大页内存 / 绑定网卡（VFIO），属部署配置，不在此代码库内解决。
 - `parse_packet` 当前返回 `Vec`；如需极致零分配可后续加 `no_alloc` feature（回调式消费，不收集消息）。
+
+## 10. 真实物理 NIC 验证（Linux + VFIO，2026-09-20 补充）
+
+容器内验证用的是 `net_pcap` 虚拟 PMD——完整走了 DPDK rx/tx 数据面，
+但**不涉及物理网卡**。若需真实 NIC 线速/延迟数据（MLX5 ConnectX、Intel i40e
+等），必须在 Linux 宿主机上直通网卡执行。本仓库已备好代码与脚本。
+
+### 10.1 代码支持（本次新增）
+
+- `dpdk/mod.rs::eal_init` 新增 **`DPDK_EAL_NATIVE=1`** 模式：
+  - 默认（容器）：`--no-huge --no-pci -m 512`（net_pcap 虚拟设备，无需物理 NIC）
+  - Native（真机）：启用 PCI 扫描、`-m 1024`；`DPDK_EAL_NO_HUGE=1` 可回退 malloc 内存
+    （无大页的 VM）。**容器验证路径行为完全不变**。
+- `bin/mold_dpdk_rx.rs` 新增 **`--nic <port>`** 模式：
+  - `mold_dpdk_rx --nic 0`：不再 attach pcap vdev，直接使用 PCI PMD 发现的端口；
+    rx 循环 busy-poll（与生产一致），持续打印 `frames/msgs/last_seq/gaps` 累计统计，
+    Ctrl-C 停止。pcap 回放/断言模式保持原样。
+- `scripts/dpdk-verify-realnic.sh`：环境检查（root/vfio-pci/大页）→ 选择 PCI BDF →
+  下网卡并绑定 vfio-pci → `DPDK_EAL_NATIVE=1 ... mold_dpdk_rx --nic 0` 收流验证。
+
+### 10.2 Linux 真机执行步骤
+
+```bash
+# 0) 前置：Linux 主机，DPDK 23.11+ 用户态库与 libdpdk-dev 头文件（与容器同版本），
+#    内核开启 IOMMU（intel_iommu=on / amd_iommu=on），加载 vfio-pci
+# 1) 编译（在 Linux 上）
+cargo build --release -p match-dpdk-io
+# 2) 绑定网卡到 vfio-pci（确认该接口不承载管理流量；会断网）
+sudo dpdk-devbind.py -b vfio-pci 0000:XX:00.0
+# 3) 收流验证：从另一台机器向该网卡发送 MoldUDP64 组播（match-moldudp64 publisher，
+#    tag=0x01/0x02 payload），本机持续打印 seq 统计
+sudo DPDK_EAL_NATIVE=1 ./crates/match-dpdk-io/scripts/dpdk-verify-realnic.sh stream 0000:XX:00.0
+```
+
+预期：`--nic 0` 打印持续累加的 `frames/msgs/last_seq`；组播流有丢包时
+`gaps` 非空并触发 NAK 语义（后续可接重传服务）。线速/延迟基准请复用
+`mold_dpdk_bench` 的 CPU 成本口径（见 §8），把 pcap 回放替换为真实收流即可。
+
+### 10.3 已验证 / 未验证边界（诚实标注）
+
+| 项 | 状态 |
+|---|---|
+| native EAL 参数路径（PCI 扫描、`-m 1024`） | 容器内验证：参数正确生效，容器无 PCI 故 EAL 返回 -1（预期） |
+| 真实 NIC 收流、线速吞吐、物理延迟 | **未验证**——需 Linux 真机 + MLX5/i40e，当前 macOS 环境无此条件 |
+| 容器 net_pcap 全链（rx 断言 + tx 回环） | 回归通过（`DPDK_VERIFY_ALL: PASS`，见 §8） |

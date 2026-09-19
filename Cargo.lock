@@ -1033,6 +1033,7 @@ name = "match-dpdk-io"
 version = "0.1.0"
 dependencies = [
  "match-moldudp64",
+ "match-soupbintcp",
 ]
 
 [[package]]
@@ -1061,6 +1062,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "match-soupbintcp"
+version = "0.1.0"
 
 [[package]]
 name = "match-spot"

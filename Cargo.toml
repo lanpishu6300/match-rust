@@ -11,6 +11,7 @@ members = [
   "crates/match-wal",
   "crates/match-moldudp64",
   "crates/match-dpdk-io",
+  "crates/match-soupbintcp",
 ]
 
 [workspace.package]

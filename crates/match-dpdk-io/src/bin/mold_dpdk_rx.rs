@@ -16,18 +16,31 @@ mod real {
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let mut args = std::env::args();
         let _bin = args.next();
-        let file = args.next().unwrap_or_else(|| "/data/input.pcap".into());
-        // "input" => assert the gen_pcap gap scenario; "output" => assert the
-        // tx round trip (2 data + 1 heartbeat, no gap).
-        let expect = args.next().unwrap_or_else(|| "input".into());
+        let first = args.next().unwrap_or_else(|| "/data/input.pcap".into());
 
         let consumed = eal_init(&[0], &[])?;
         eprintln!("EAL initialized (consumed {consumed} args)");
 
         let pool = mbuf_pool("mold_mb")?;
-        let port = attach_pcap_vdev("net_pcap0", &format!("rx_pcap={file}"))?;
-        eprintln!("attached net_pcap0 (rx {file}) as port {port}");
-        unsafe { setup_port(port, pool)?; }
+
+        // --nic <port>: real physical NIC (PCI PMD). Continuous rx loop,
+        // Ctrl-C to stop; env DPDK_EAL_NATIVE=1 must be set by the caller.
+        let port: u16;
+        let finite: bool;
+        let mut scenario = "input".to_string();
+        if first == "--nic" {
+            port = args.next().unwrap_or_else(|| "0".into()).parse()?;
+            finite = false;
+            eprintln!("using physical port {port} (native PMD)");
+            unsafe { setup_port(port, pool)?; }
+        } else {
+            let file = first;
+            scenario = args.next().unwrap_or_else(|| "input".into());
+            port = attach_pcap_vdev("net_pcap0", &format!("rx_pcap={file}"))?;
+            finite = true;
+            eprintln!("attached net_pcap0 (rx {file}) as port {port}, scenario={scenario}");
+            unsafe { setup_port(port, pool)?; }
+        }
 
         // Subscriber bound to a dummy unicast addr (the pcap PMD feeds
         // parse_packet directly; no real socket traffic).
@@ -46,6 +59,11 @@ mod real {
         'outer: loop {
             let nb = unsafe { rx_burst(port, &mut mbufs) };
             if nb == 0 {
+                if !finite {
+                    // Real NIC: keep polling (DPDK busy-poll, like production).
+                    std::hint::spin_loop();
+                    continue 'outer;
+                }
                 break 'outer; // pcap exhausted
             }
             for i in 0..nb as usize {
@@ -79,6 +97,16 @@ mod real {
             }
         }
 
+        if !finite {
+            // Physical-NIC mode: no pcap assertions — print cumulative stats
+            // forever (Ctrl-C to stop) so an external publisher can be measured.
+            eprintln!(
+                "  [running] frames={packets_seen} msgs={total_msgs} last_seq={:?} gaps={gaps:?}",
+                sub.last_seq()
+            );
+            return Ok(());
+        }
+
         // ---- Assertions (input = gen_pcap gap scenario; output = tx round trip) ----
         let mut pass = true;
         macro_rules! check {
@@ -91,7 +119,7 @@ mod real {
                 }
             }};
         }
-        match expect.as_str() {
+        match scenario.as_str() {
             "input" => {
                 check!(packets_seen == 5, format!("5 frames received (got {packets_seen})"));
                 check!(total_msgs == 5, format!("5 messages parsed (got {total_msgs})"));

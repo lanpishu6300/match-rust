@@ -1,0 +1,12 @@
+[package]
+name = "match-soupbintcp"
+description = "NASDAQ SoupBinTCP session layer (order entry transport, carries OUCH messages)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[lib]
+name = "match_soupbintcp"
+
+[dependencies]

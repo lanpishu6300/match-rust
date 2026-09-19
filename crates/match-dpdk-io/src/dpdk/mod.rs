@@ -17,8 +17,13 @@ pub const MBUF_CACHE_SIZE: c_uint = 256;
 pub const MBUF_DATA_ROOM: u16 = 2048;
 pub const BURST_SIZE: u16 = 32;
 
-/// Initialize the EAL. Container-friendly flags: no hugepages, no PCI scan
-/// (pcap vdev is virtual), single lcore unless `cores` says otherwise.
+/// Initialize the EAL. Default container-friendly flags: no hugepages, no PCI
+/// scan (pcap vdev is virtual), single lcore unless `cores` says otherwise.
+///
+/// Set `DPDK_EAL_NATIVE=1` to run against a real physical NIC: PCI scan is
+/// enabled and more memory is requested. VFIO binding is done out-of-band by
+/// scripts/dpdk-verify-realnic.sh. `DPDK_EAL_EXTRA` appends arbitrary EAL
+/// flags (e.g. `-w 0000:03:00.0,--log-level=pmd:8`).
 ///
 /// Returns the number of EAL arguments consumed (used to keep argv alive).
 pub fn eal_init(cores: &[u32], extra: &[&str]) -> Result<usize, String> {
@@ -29,8 +34,19 @@ pub fn eal_init(cores: &[u32], extra: &[&str]) -> Result<usize, String> {
         args.push(CString::new("-l").unwrap());
         args.push(CString::new(list.join(",")).unwrap());
     }
-    for flag in ["--no-huge", "--no-pci", "-m", "512"] {
-        args.push(CString::new(flag).unwrap());
+    let native = std::env::var("DPDK_EAL_NATIVE").is_ok();
+    if native {
+        // Real-NIC mode: scan PCI, rely on hugepages when present; fall back
+        // to malloc memory when DPDK_EAL_NO_HUGE=1 (e.g. a VM without them).
+        args.push(CString::new("-m").unwrap());
+        args.push(CString::new("1024").unwrap());
+        if std::env::var("DPDK_EAL_NO_HUGE").is_ok() {
+            args.push(CString::new("--no-huge").unwrap());
+        }
+    } else {
+        for flag in ["--no-huge", "--no-pci", "-m", "512"] {
+            args.push(CString::new(flag).unwrap());
+        }
     }
     for e in extra {
         args.push(CString::new(*e).unwrap());

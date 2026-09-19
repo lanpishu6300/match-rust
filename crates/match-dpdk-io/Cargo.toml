@@ -10,3 +10,4 @@ description = "DPDK (Linux-only) I/O backend for match-moldudp64: mbuf zero-copy
 # Zero external crates: FFI is hand-written, links resolved by build.rs.
 [target.'cfg(target_os = "linux")'.dependencies]
 match-moldudp64 = { path = "../match-moldudp64" }
+match-soupbintcp = { path = "../match-soupbintcp" }

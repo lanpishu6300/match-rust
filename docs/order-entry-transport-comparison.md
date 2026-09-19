@@ -1,0 +1,120 @@
+# 金融组播/订单接入规范全景对比与 DPDK 适配性
+
+> 覆盖：MoldUDP64、SoupBinTCP、iLink 3.0（CME）、FAST、ITCH、OUCH、FIX/QuickFIX 及 UDP 数据报协议（17）相关变体；
+> 重点回答两个问题：①业界还有哪些类似的金融组播规范；②哪些有 DPDK 社区支持 / 适合 DPDK。
+
+## 1. 规范地图：谁在传输层，谁在业务层
+
+```
+会话/传输层（带序列号、心跳、重传语义）
+├── MoldUDP64      NASDAQ 行情组播（单向，显式 seq，NAK 重传）
+├── SoupBinTCP     NASDAQ 订单接入（TCP 双向，隐式 seq，重登录重放）  ← 本仓库已实现
+├── iLink 3.0      CME 订单接入（TCP + SBE 编码 + 序列号 + 丢包重传 + 心跳）
+└── FAST (FIX Adapted for STreaming)  FIX 组织的高效编码（多为 UDP 组播载体）
+
+业务消息层（可放上面任意传输）
+├── ITCH           NASDAQ 行情消息（放 MoldUDP64）
+├── OUCH           NASDAQ 下单消息（放 SoupBinTCP）
+├── SBE (Simple Binary Encoding)  iLink 3.0 的编码格式（FIX 组织二进制化）
+└── FIX/FAST 消息   各所通用
+
+传统/其余
+├── FIX 4.x (TCP)   最广泛但不适合极低延迟（文本、会话状态复杂）
+├── OUCH 4.1/4.2 (SoupBinTCP 3.x 之前用 4.x 文本版 SoupTCP)
+└── 各交易所私有组播：CME MDP 3.0、Eurex T7 (MDI)、LSE Millennium、OSE、HKEX ORS
+```
+
+## 2. 逐规范详表
+
+### 2.1 MoldUDP64（NASDAQ，行情组播）— 已实现 + DPDK 验证
+
+| 维度 | 细节 |
+|---|---|
+| 传输 | UDP 组播（单向），消息头 `[session 10][seq 4BE][msg_count 1][msg_len 2BE]*n` |
+| 序列号 | 每消息显式 4B BE，首包=1 |
+| 可靠性 | 客户端 NAK（request retransmission）请求缺失区间，服务端单播补发 |
+| 心跳 | 空 payload 消息（不占 seq） |
+| 典型承载 | ITCH 5.0 行情（FPGA 版仅支持 MoldUDP64） |
+| **DPDK 适配** | **极佳**：单向无状态、包级 seq 校验、多队列轮询天然匹配；本仓库实测 rx 810 万 msg/s（123ns/帧） |
+| 社区支持 | 无官方 DPDK 库，但协议极简，自研实现普遍（本仓库为范例） |
+
+### 2.2 SoupBinTCP（NASDAQ，订单接入）— 本仓库已实现
+
+| 维度 | 细节 |
+|---|---|
+| 传输 | TCP 双向；帧 `[len 2BE][type][payload]` |
+| 序列号 | 隐式（Sequenced Data 逐包+1），Login Accepted 给起始 |
+| 可靠性 | 重登录 `requested_sequence` → 服务端重放消息存储（会话快照） |
+| 心跳 | 双向 1s 保活（R/H） |
+| 典型承载 | OUCH 下单、ITCH 行情（TCP 模式） |
+| **DPDK 适配** | **间接**：需用户态 TCP 栈（mTCP/F-Stack/Seastar）后接入本 crate 解析器；连接管理本身内核 TCP 更稳 |
+| 社区支持 | 多语言开源实现（node/go/java），DPDK 侧无专用库 |
+
+### 2.3 iLink 3.0（CME，订单接入）
+
+| 维度 | 细节 |
+|---|---|
+| 传输 | TCP（CME 订单接入标准），**SBE 编码**（FIX 组织 Simple Binary Encoding） |
+| 会话 | 序列号（会话级）、**丢包重传**（消息级重传请求）、心跳 |
+| 可靠模型 | 与 SoupBinTCP 同类：TCP 可靠流 + 会话级快照/重传，但用 SBE 提高编码密度 |
+| 登录 | 二进制登录/Logon（含 NextSeqNo、LastSeqNo，类似 FIX 会话恢复） |
+| **DPDK 适配** | 同 SoupBinTCP：间接（需 TCP 栈）；**SBE 解码器适合 DPDK 收包后批量解码**（无锁、定长字段） |
+| 社区支持 | CME 官方提供 SBE Java/C++ 编解码库；DPDK 无官方集成 |
+
+### 2.4 FAST（FIX Adapted for STreaming）
+
+| 维度 | 细节 |
+|---|---|
+| 传输 | 常用于 UDP 组播（行情扇出），也可 TCP |
+| 编码 | 字段级压缩（模板 + 增量 + 前值引用），解码有状态（需维护前值表） |
+| 序列号/心跳 | 由外层协议（MoldUDP64 等）提供 |
+| **DPDK 适配** | 差：解码器有状态、模板查找、位级操作 —— 状态维护破坏无状态轮询流水线；DPDK 侧收益低 |
+| 社区支持 | 无 DPDK 专用库 |
+
+### 2.5 ITCH / OUCH（业务消息，非传输层）
+
+| 协议 | 消息特征 | DPDK 适配 |
+|---|---|---|
+| ITCH 5.0 | 定长/变长混合，BE 整数 | 极佳（配合 MoldUDP64） |
+| OUCH 4.2 | 全部定长（19–66B） | **极佳**：定长 + BE 整数 = SIMD/无分支解析；本仓库 `ouch.rs` 已实现 |
+
+### 2.6 其他交易所私有规范（参考）
+
+| 交易所 | 协议 | 特征 | DPDK 适配 |
+|---|---|---|---|
+| CME | MDP 3.0 | 行情组播 + 增量刷新，SBE 编码 | 佳（MoldUDP64 风格） |
+| Eurex | T7 MDI | 组播 + 快照/增量，二进制 | 佳 |
+| LSE | Millennium | 组播行情 | 佳 |
+| HKEX | ORS | 订单路由（TCP）+ 行情组播 | 佳（组播侧） |
+| 上交所/深交所 | SSE/Level-1/2 组播 | 私有组播行情 | 佳 |
+
+## 3. DPDK 适配性矩阵（结论）
+
+| 协议 | 传输 | 有 DPDK 官方支持? | 适合 DPDK? | 方式 |
+|---|---|---|---|---|
+| MoldUDP64 | UDP 组播 | 无官方 | ★★★★★ | 直接 rx_burst 轮询（已实现） |
+| SoupBinTCP | TCP | 无官方 | ★★★（需 TCP 栈） | DPDK 收包 + 用户态 TCP + 本 crate 解析 |
+| iLink 3.0 / SBE | TCP | 无官方（SBE 库官方有） | ★★★☆ | DPDK 收包 + 用户态 TCP + SBE 批量解码 |
+| FAST | UDP/TCP | 无 | ★★ | 有状态解码器，收益低 |
+| ITCH | 组播/TCP | 无 | ★★★★★ | 定长 + BE，无状态解析 |
+| OUCH | TCP | 无 | ★★★★★（解码器） | 定长消息，DPDK 侧批量解码 |
+| FIX 4.x | TCP | 无 | ★ | 文本解析 + 复杂状态机，不值当 |
+
+**一句话结论**：**DPDK 的价值在"无状态、定长、批量化"的收包与解码路径上 —— 组播行情（MoldUDP64+ITCH）全链路受益；订单接入（SoupBinTCP/iLink）需要用户态 TCP 栈搭桥，收益集中在解码层，连接与会话可靠性仍建议交给内核 TCP + 重登录/重传。**
+
+## 4. 本仓库落地对照
+
+| 链路 | 已实现 | 验证 |
+|---|---|---|
+| 行情入站 | MoldUDP64 解析 + DPDK rx（810 万 msg/s） | 容器 DPDK_VERIFY_ALL: PASS |
+| 行情出站 | publish 单条 88.7 万 / 批量 1722 万 msg/s | 容器实测 |
+| 订单入站 | SoupBinTCP（packet/session/ouch）+ DPDK pcap 回放 | 容器 PASS（10001 帧） |
+| 订单出站 | `soup_tcp_bench` 内核 TCP 端到端（p50 56.4µs） | 容器 PASS |
+
+## 5. 参考资料
+
+- NASDAQ ITCH 5.0 规范（含传输架构：SoupBinTCP / 压缩 SoupBinTCP / MoldUDP64 三种选项）
+- NASDAQ OUCH 4.2 规范（2025-10 更新）
+- SoupTCP 2.00 官方 PDF（文本行版协议，序列号/快照语义源头）
+- go-finproto（SoupBinTCP 4.1 实现）、node-soupbintcp（3.00 实现）—— 二进制帧格式交叉确认
+- CME iLink 3.0 规范（SBE 编码、会话重传）
