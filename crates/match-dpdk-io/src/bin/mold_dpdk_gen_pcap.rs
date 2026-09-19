@@ -87,9 +87,11 @@ mod real {
         let now = 1_700_000_000u64;
         for (i, f) in frames.iter().enumerate() {
             let mut ph = [0u8; 16];
-            ph[..8].copy_from_slice(&(now + i as u64).to_le_bytes()); // ts_sec
-            ph[8..12].copy_from_slice(&0u32.to_le_bytes()); // ts_usec
-            ph[12..16].copy_from_slice(&(f.len() as u32).to_le_bytes()); // incl_len
+            // pcap record header: ts_sec(4) + ts_usec(4) + incl_len(4) + orig_len(4)
+            ph[..4].copy_from_slice(&((now + i as u64) as u32).to_le_bytes()); // ts_sec
+            ph[4..8].copy_from_slice(&0u32.to_le_bytes()); // ts_usec
+            ph[8..12].copy_from_slice(&(f.len() as u32).to_le_bytes()); // incl_len
+            ph[12..16].copy_from_slice(&(f.len() as u32).to_le_bytes()); // orig_len
             out.write_all(&ph)?;
             out.write_all(f)?;
         }

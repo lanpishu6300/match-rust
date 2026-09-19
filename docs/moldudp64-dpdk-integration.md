@@ -89,7 +89,28 @@ sudo ./target/release/mold_dpdk_rx --port 0 --queue 0 --group 239.255.0.1
 #    Wireshark 抓包 + 对比 seq 连续性与 payload 一致性
 ```
 
-## 8. 已知限制
+## 8. 实测验证结果（macOS + Docker Desktop, arm64, DPDK 23.11.4, 2026-09-19）
+
+**`DPDK_VERIFY_ALL: PASS`** —— 全链路断言全部通过：
+
+```
+gen_pcap  → input.pcap (5 帧: seq 1,2,3 + 心跳@4 + seq 5,6)
+DPDK rx   → 5 帧 / 5 消息 / seqs=[1,2,3,5,6] / gap=(4,1) / last_seq=6   ✅
+DPDK tx   → output.pcap (2 数据 + 1 心跳, 3 帧)
+DPDK rx   → 3 帧 / 3 消息 / seqs=[1,2,3] / 无 gap / last_seq=3           ✅
+```
+
+**验证中修复的 3 个真实缺陷**（FFI 与文件格式，均有 C 对照程序实测定位）：
+
+| # | 缺陷 | 根因（实测） | 修复 |
+|---|---|---|---|
+| 1 | `rte_eth_dev_configure` 返回 -EINVAL + 假 "does not support lsc" | Rust FFI 的 `rte_eth_conf` 只给 512B，真实 `sizeof(struct rte_eth_conf)=2280`，DPDK 读到栈上垃圾 | 扩为 `[u64; 285]` |
+| 2 | pcap 文件 libpcap 读错（len=0xFFFF/错位） | gen_pcap 记录头写错：`ts(8B)+usec(4B)+incl(4B)`，缺 `orig_len`，导致 incl_len 读到帧数据 | 标准 4+4+4+4 |
+| 3 | mbuf 字段全部错位（pkt_len=0/数据全零） | 手写 `rte_mbuf` 用了 x86_64 布局（16B cacheline 前缀），aarch64 实测 `buf_addr@0, data_off@16, pkt_len@36, data_len@40` | 按实测偏移重写 |
+
+**经验**：手写 DPDK FFI 时，结构体大小与字段偏移必须用 `sizeof()`/`offsetof()` 在目标架构实测核对，不要照搬 x86 文档布局；`rte_eth_conf` 这类大结构尤其容易踩。
+
+## 9. 已知限制
 
 - macOS 无 DPDK，本仓库集成测试全部基于内核 UDP（已覆盖协议正确性）。
 - DPDK 环境需 root / 大页内存 / 绑定网卡（VFIO），属部署配置，不在此代码库内解决。

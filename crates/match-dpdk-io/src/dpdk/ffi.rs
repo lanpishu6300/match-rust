@@ -30,21 +30,23 @@
 use std::os::raw::{c_char, c_int, c_uint, c_void};
 
 /// DPDK mbuf — only the fields we touch, padded to the real 128-byte size.
+/// Offsets MEASURED on the Ubuntu noble DPDK 23.11.4 aarch64 headers
+/// (offsetof: buf_addr=0, data_off=16, pkt_len=36, data_len=40 — this build
+/// has no RTE_MARKER cacheline0 prefix; earlier hand-written layout was
+/// x86_64-oriented and read garbage fields).
 #[repr(C)]
 pub struct rte_mbuf {
-    _cacheline0: [u8; 16],
-    pub buf_addr: *mut c_void,
-    _buf_iova: u64,
-    _rearm_data: [u8; 8],
-    pub data_off: u16,
-    _refcnt: u16,
-    _nb_segs: u16,
-    _port: u16,
-    _ol_flags: u64,
-    _packet_type: u32,
-    pub pkt_len: u32,
-    pub data_len: u16,
-    _pad: [u8; 62], // 66..128
+    pub buf_addr: *mut c_void, // @0
+    _buf_iova: u64,            // @8
+    pub data_off: u16,         // @16
+    _refcnt: u16,              // @18
+    _nb_segs: u16,             // @20
+    _port: u16,                // @22
+    _ol_flags: u64,            // @24
+    _packet_type: u32,         // @32
+    pub pkt_len: u32,          // @36
+    pub data_len: u16,         // @40
+    _pad: [u8; 86],            // 42..128
 }
 
 /// Opaque mempool handle.
@@ -54,21 +56,27 @@ pub struct rte_mempool {
 }
 
 /// Device config — DPDK only reads it; a zeroed block means "all defaults".
+/// Real size on DPDK 23.11 (aarch64) is 2280 bytes — measured against the
+/// headers (sizeof(struct rte_eth_conf)=2280). Must be >= that or DPDK reads
+/// past our buffer and misinterprets garbage (observed: -EINVAL + spurious
+/// "does not support lsc").
 #[repr(C)]
 pub struct rte_eth_conf {
-    _data: [u64; 64],
+    _data: [u64; 285], // 2280 bytes
 }
 
 /// RX queue config — read-only, zeroed defaults are fine.
+/// sizeof(struct rte_eth_rxconf)=80 (measured).
 #[repr(C)]
 pub struct rte_eth_rxconf {
-    _data: [u64; 16],
+    _data: [u64; 16], // 128 bytes >= 80
 }
 
 /// TX queue config — read-only, zeroed defaults are fine.
+/// sizeof(struct rte_eth_txconf)=56 (measured).
 #[repr(C)]
 pub struct rte_eth_txconf {
-    _data: [u64; 16],
+    _data: [u64; 16], // 128 bytes >= 56
 }
 
 extern "C" {

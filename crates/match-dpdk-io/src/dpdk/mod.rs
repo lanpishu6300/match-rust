@@ -35,6 +35,14 @@ pub fn eal_init(cores: &[u32], extra: &[&str]) -> Result<usize, String> {
     for e in extra {
         args.push(CString::new(*e).unwrap());
     }
+    // Debug hook: `DPDK_EAL_EXTRA="--log-level=pmd:8,--log-level=eal:8"` etc.
+    if let Ok(ext) = std::env::var("DPDK_EAL_EXTRA") {
+        for e in ext.split(',') {
+            if !e.is_empty() {
+                args.push(CString::new(e).unwrap());
+            }
+        }
+    }
     let mut argv: Vec<*mut c_char> = args.iter().map(|s| s.as_ptr() as *mut c_char).collect();
     // SAFETY: argv outlives rte_eal_init via `args` staying in scope.
     let rc = unsafe { rte_eal_init(argv.len() as c_int, argv.as_mut_ptr()) };
