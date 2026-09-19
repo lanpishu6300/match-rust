@@ -148,3 +148,47 @@ DPDK rx_burst → udp_payload → parse_stream → ClientSession，序列号连�
 - 实现：`crates/match-soupbintcp/{lib,packet,session,ouch}.rs`
 - 验证：`crates/match-dpdk-io/src/bin/{soup_tcp_bench,mold_soup_dpdk}.rs`
 - 对照阅读：`docs/moldudp64-dpdk-integration.md`（MoldUDP64/DPDK 实测）
+
+## 9. 多维性能测试与故障注入（soup_perf_matrix，容器实测 2026-09-20）
+
+内核 TCP 回环、单进程（server 线程 + client）、Linux 容器 `mold-dpdk-verify`。吞吐为"下单→全回报闭环"速率。
+
+### 9.1 订单数量扫描（fills=1, batch=1, conns=1）
+
+| 订单数 | 耗时 | 订单/回报速率 |
+|---|---|---|
+| 1,000 | 0.058 s | 17,273/s |
+| 10,000 | 0.582 s | 17,184/s |
+| 50,000 | 2.841 s | 17,602/s |
+| 100,000 | 5.850 s | 17,093/s |
+
+结论：速率与量级无关（≈17.2k/s），纯 syscall 往返瓶颈。
+
+### 9.2 成交数量扩展（orders=20,000）
+
+| 每单回报数 | 订单速率 | 回报总量 | 回报侧速率 |
+|---|---|---|---|
+| 1 | 17,653/s | 20,000 | 17,653/s |
+| 2 | 17,220/s | 40,000 | 34,440/s |
+| 5 | 15,193/s | 100,000 | 75,965/s |
+| 10 | 16,071/s | 200,000 | 160,710/s |
+
+结论：订单速率仅降 ~9%，回报侧吞吐线性扩展（→160.7k reports/s）。
+
+### 9.3 下单速度（orders=50,000）
+
+批量（conns=1）：batch=1/10/100 → 17,990 / 149,637 / **352,868 orders/s（19.6×）**
+并发（batch=1）：conns=1/2/4 → 17,048 / 32,185 / **48,203 orders/s（2.83×）**
+
+### 9.4 故障注入（orders=20,000）
+
+| 场景 | 速率 | 行为 |
+|---|---|---|
+| 基线 | 17,298/s | 全闭环 |
+| mid-drop 断连重连 | 17,512/s | 断点重连续跑；断连瞬间在途回报未确认（race），重连按 requested_seq 补 |
+
+其他故障语义（soup_tcp_bench 断言 PASS）：重放窗口 clamp（requested=25000→granted=41809→重放 8192）、too-old→最早可提供、心跳超时→EOF→重登录恢复。
+
+### 9.5 结论
+
+吞吐优先级：批量打包 > 并发连接 > 单连接优化；故障恢复由"重登录 + requested_seq 重放"统一覆盖。
