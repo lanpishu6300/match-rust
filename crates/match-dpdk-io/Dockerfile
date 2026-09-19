@@ -43,6 +43,7 @@ COPY crates/match-dpdk-io/offline-assets/dpdk-headers/usr/include/ /usr/include/
 # --- build the dpdk bins (zero external crates: FFI is hand-written) ---
 WORKDIR /app
 COPY . .
-RUN rm -rf offline-assets \
+RUN ls crates/match-dpdk-io/src/bin/ \
+    && rm -rf offline-assets \
     && cargo build --release -p match-dpdk-io \
-    && ls -lh target/release/mold_dpdk_*
+    && ls -lh target/release/mold_*

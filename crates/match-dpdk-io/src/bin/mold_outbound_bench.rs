@@ -51,7 +51,15 @@ mod real {
 
         let t0 = Instant::now();
         for _ in 0..n {
-            p.publish_tagged(0x01, &fill_body)?;
+            loop {
+                match p.publish_tagged(0x01, &fill_body) {
+                    Ok(()) => break,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::hint::spin_loop();
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
         }
         let a_elapsed = t0.elapsed();
 

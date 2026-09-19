@@ -38,7 +38,15 @@ mod real {
             thread::spawn(move || -> std::io::Result<u64> {
                 let p = MoldPublisher::new("MATCH_RUST", target, 4096)?;
                 for _ in 0..n {
-                    p.publish_tagged(0x01, &payload)?;
+                    loop {
+                        match p.publish_tagged(0x01, &payload) {
+                            Ok(()) => break,
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                std::hint::spin_loop();
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
                 }
                 Ok(p.next_seq() - 1)
             })
