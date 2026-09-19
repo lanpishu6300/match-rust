@@ -1,0 +1,12 @@
+[package]
+name = "match-dpdk-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DPDK (Linux-only) I/O backend for match-moldudp64: mbuf zero-copy rx/tx"
+
+# DPDK is Linux-only; macOS builds compile an empty shell so the workspace
+# keeps working on the dev machine. All real code is behind cfg(target_os="linux").
+# Zero external crates: FFI is hand-written, links resolved by build.rs.
+[target.'cfg(target_os = "linux")'.dependencies]
+match-moldudp64 = { path = "../match-moldudp64" }
