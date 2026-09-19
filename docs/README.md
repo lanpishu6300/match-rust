@@ -28,11 +28,14 @@ Convention: English `Foo.md` + Chinese `Foo.zh-CN.md`, with a language switcher 
 | [2026-07-18-match-core-hp-design.md](./specs/2026-07-18-match-core-hp-design.md) · [中文](./specs/2026-07-18-match-core-hp-design.zh-CN.md) | HP dual-track |
 | [2026-07-18-pe-optimizations-design.md](./specs/2026-07-18-pe-optimizations-design.md) · [中文](./specs/2026-07-18-pe-optimizations-design.zh-CN.md) | PE-inspired A→B→C |
 | [2026-07-22-tier-sweep-design.md](./specs/2026-07-22-tier-sweep-design.md) · [中文](./specs/2026-07-22-tier-sweep-design.zh-CN.md) | Rest × stream × fill matrix |
+| [2026-07-27-spot-match-shell-design.md](./specs/2026-07-27-spot-match-shell-design.md) · [中文](./specs/2026-07-27-spot-match-shell-design.zh-CN.md) | Spot shell (M5) |
+| [2026-07-27-spot-match-greenfield.md](./specs/2026-07-27-spot-match-greenfield.md) · [中文](./specs/2026-07-27-spot-match-greenfield.zh-CN.md) | **Spot greenfield 0→1** (ignore existing Rust/C++) |
 
 ## Plans
 
 | Plan | Topic |
 |------|-------|
+| [2026-07-27-spot-match-greenfield.md](./plans/2026-07-27-spot-match-greenfield.md) · [中文](./plans/2026-07-27-spot-match-greenfield.zh-CN.md) | **Spot greenfield task breakdown** |
 | [2026-07-17-rust-match-engines.md](./plans/2026-07-17-rust-match-engines.md) · [中文](./plans/2026-07-17-rust-match-engines.zh-CN.md) | Equivalence tasks |
 | [2026-07-18-match-core-hp.md](./plans/2026-07-18-match-core-hp.md) · [中文](./plans/2026-07-18-match-core-hp.zh-CN.md) | HP tasks |
 | [2026-07-18-pe-optimizations.md](./plans/2026-07-18-pe-optimizations.md) · [中文](./plans/2026-07-18-pe-optimizations.zh-CN.md) | Cache / ART / wal |

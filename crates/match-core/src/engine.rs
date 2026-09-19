@@ -81,6 +81,14 @@ impl Engine {
             .map(|book| book.depth_levels(side, limit))
             .unwrap_or_default()
     }
+
+    /// Resting orders for handicap depth (`NoDealProducer.getDepth`).
+    pub fn resting_orders(&self, symbol: &str, side: Side) -> Vec<BbOrder> {
+        self.books
+            .get(symbol)
+            .map(|book| book.resting_orders(side))
+            .unwrap_or_default()
+    }
 }
 
 fn is_height_order_form(order_form: i8) -> bool {

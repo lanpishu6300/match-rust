@@ -9,7 +9,7 @@
 | **M0 – 已完成** | 工作区、HP 双轨、fair_compare、Apache 工程化、覆盖率门禁 |
 | **M1 – 近期** | 真实 RocketMQ 适配；填写 e2e-budget 实测 |
 | **M2** | 按 symbol 灰度手册落地；测试环境 L3 影子 |
-| **M3** | 现货壳超越 stub；hp 可选生产开关（特性门控） |
+| **M3** | 现货壳超越 stub — 见 [M5 设计](../../specs/2026-07-27-spot-match-shell-design.zh-CN.md)；hp 可选生产开关（特性门控） |
 | **M4** | 加固：WAL 回放（若采用）、运维手册、更多语言包 |
 
 暂不纳入：完整 Aeron IPC、FPGA、替代账户/强平服务。

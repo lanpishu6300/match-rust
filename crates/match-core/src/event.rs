@@ -8,6 +8,10 @@ pub enum MatchEvent {
         symbol: String,
         taker_order_no: String,
         maker_order_no: String,
+        /// Java `BBOrder.type` on the taker leg.
+        taker_user_type: i8,
+        /// Java `BBOrder.targetType` / maker `type`.
+        maker_user_type: i8,
         price: String,
         qty: String,
         taker_remaining: String,

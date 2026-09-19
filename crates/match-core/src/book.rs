@@ -146,4 +146,12 @@ impl OrderBook {
             Side::Sell => depth_levels_from_orders(self.sells.iter().map(|e| e.0.clone()), limit),
         }
     }
+
+    /// Resting orders in book sort order (price-time priority).
+    pub fn resting_orders(&self, side: Side) -> Vec<BbOrder> {
+        match side {
+            Side::Buy => self.buys.iter().map(|e| e.0.clone()).collect(),
+            Side::Sell => self.sells.iter().map(|e| e.0.clone()).collect(),
+        }
+    }
 }

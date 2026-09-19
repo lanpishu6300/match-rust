@@ -54,7 +54,7 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
         vec![fill_event(
             &sell.symbol_key,
             &sell,
-            &buy.trust_order_no,
+            &buy,
             &deal_price,
             &last_sell,
             &BigDecimal::zero(),
@@ -95,7 +95,7 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
         vec![fill_event(
             &sell.symbol_key,
             &sell,
-            &buy.trust_order_no,
+            &buy,
             &deal_price,
             &last_sell,
             &BigDecimal::zero(),
@@ -175,7 +175,7 @@ fn fok_sell_walk(
         events.push(fill_event(
             &sell.symbol_key,
             &sell,
-            &buy.trust_order_no,
+            &buy,
             &deal_price,
             &deal_qty,
             &BigDecimal::zero(),
@@ -205,7 +205,7 @@ fn fok_sell_walk(
         events.push(fill_event(
             &sell.symbol_key,
             &sell,
-            &buy.trust_order_no,
+            &buy,
             &deal_price,
             &deal_qty,
             &taker_rem,

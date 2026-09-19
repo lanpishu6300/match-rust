@@ -93,6 +93,7 @@ impl Outbound {
                     maker_remaining,
                     taker_status,
                     maker_status,
+                    ..
                 } => {
                     telemetry::record_fill();
                     push_batch.push(PushOrder {

@@ -28,11 +28,14 @@
 | [中文](./specs/2026-07-18-match-core-hp-design.zh-CN.md) · [EN](./specs/2026-07-18-match-core-hp-design.md) | HP 双轨 |
 | [中文](./specs/2026-07-18-pe-optimizations-design.zh-CN.md) · [EN](./specs/2026-07-18-pe-optimizations-design.md) | PE 启发的 A→B→C |
 | [中文](./specs/2026-07-22-tier-sweep-design.zh-CN.md) · [EN](./specs/2026-07-22-tier-sweep-design.md) | 深度 × 流长 × 成交强度矩阵 |
+| [中文](./specs/2026-07-27-spot-match-shell-design.zh-CN.md) · [EN](./specs/2026-07-27-spot-match-shell-design.md) | 现货壳层（M5） |
+| [中文](./specs/2026-07-27-spot-match-greenfield.zh-CN.md) · [EN](./specs/2026-07-27-spot-match-greenfield.md) | **现货 Greenfield 0→1**（忽略既有 Rust/C++） |
 
 ## 实现计划（plans）
 
 | 计划 | 主题 |
 |------|------|
+| [中文](./plans/2026-07-27-spot-match-greenfield.zh-CN.md) · [EN](./plans/2026-07-27-spot-match-greenfield.md) | **现货 Greenfield 任务分解** |
 | [中文](./plans/2026-07-17-rust-match-engines.zh-CN.md) · [EN](./plans/2026-07-17-rust-match-engines.md) | 等价任务 |
 | [中文](./plans/2026-07-18-match-core-hp.zh-CN.md) · [EN](./plans/2026-07-18-match-core-hp.md) | HP 任务 |
 | [中文](./plans/2026-07-18-pe-optimizations.zh-CN.md) · [EN](./plans/2026-07-18-pe-optimizations.md) | 缓存 / ART / wal |

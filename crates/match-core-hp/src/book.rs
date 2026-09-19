@@ -134,6 +134,25 @@ impl Book {
         }
     }
 
+    #[doc(hidden)]
+    #[cfg_attr(coverage, coverage(off))]
+    pub fn __test_clear_level_for_coverage(&mut self, side: Side, tick: i64) {
+        match side {
+            Side::Buy => {
+                self.bids.remove(tick);
+                if self.best_bid_tick == Some(tick) {
+                    self.best_bid_tick = self.bids.best_tick();
+                }
+            }
+            Side::Sell => {
+                self.asks.remove(tick);
+                if self.best_ask_tick == Some(tick) {
+                    self.best_ask_tick = self.asks.best_tick();
+                }
+            }
+        }
+    }
+
     pub fn best_ask(&self) -> Option<i64> {
         debug_assert_eq!(self.best_ask_tick, self.asks.best_tick());
         self.best_ask_tick
@@ -395,5 +414,18 @@ mod tests {
         assert!(b.fill_order(id1, 5).is_none());
         assert!(b.cancel(id2));
         assert_eq!(b.best_ask(), None);
+    }
+
+    #[test]
+    fn fill_order_when_level_index_missing() {
+        let mut b = Book::new();
+        let id = b.insert_limit(HpOrder::limit(Side::Buy, 100, 2, 1));
+        b.__test_clear_level_for_coverage(Side::Buy, 100);
+        assert!(b.fill_order(id, 2).is_none());
+        assert!(!b.store().contains(id));
+
+        let id2 = b.insert_limit(HpOrder::limit(Side::Buy, 101, 2, 2));
+        b.__test_clear_level_for_coverage(Side::Buy, 101);
+        assert!(b.fill_order(id2, 1).is_some());
     }
 }

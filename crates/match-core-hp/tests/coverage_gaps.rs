@@ -248,6 +248,19 @@ fn fill_non_front_order_uses_retain_path() {
 }
 
 #[test]
+fn fill_order_when_level_index_missing() {
+    let mut b = Book::new();
+    let id = b.insert_limit(HpOrder::limit(Side::Buy, 100, 2, 1));
+    b.__test_clear_level_for_coverage(Side::Buy, 100);
+    assert!(b.fill_order(id, 2).is_none());
+
+    let id2 = b.insert_limit(HpOrder::limit(Side::Buy, 101, 2, 2));
+    b.__test_clear_level_for_coverage(Side::Buy, 101);
+    assert!(b.fill_order(id2, 1).is_some());
+    assert!(b.store().contains(id2));
+}
+
+#[test]
 fn fill_order_overfill_clamps_defensive_totals() {
     let mut b = Book::new();
     let id = b.insert_limit(HpOrder::limit(Side::Sell, 50, 2, 1));

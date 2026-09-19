@@ -21,7 +21,7 @@ pub(crate) fn dec_str(d: &BigDecimal) -> String {
 pub(crate) fn fill_event(
     symbol: &str,
     taker: &BbOrder,
-    maker_order_no: &str,
+    maker: &BbOrder,
     price: &BigDecimal,
     qty: &BigDecimal,
     taker_remaining: &BigDecimal,
@@ -32,7 +32,9 @@ pub(crate) fn fill_event(
     MatchEvent::Fill {
         symbol: symbol.to_string(),
         taker_order_no: taker.trust_order_no.clone(),
-        maker_order_no: maker_order_no.to_string(),
+        maker_order_no: maker.trust_order_no.clone(),
+        taker_user_type: taker.r#type,
+        maker_user_type: maker.r#type,
         price: dec_str(price),
         qty: dec_str(qty),
         taker_remaining: dec_str(taker_remaining),
@@ -187,7 +189,7 @@ pub(crate) fn rather_than_buy(book: &mut OrderBook) -> Option<MatchEvent> {
         Some(fill_event(
             &symbol,
             &buy,
-            &sell.trust_order_no,
+            &sell,
             &deal_price,
             &last_sell,
             &taker_rem,
@@ -230,7 +232,7 @@ fn less_than_buy(
     Some(fill_event(
         &symbol,
         &buy,
-        &sell.trust_order_no,
+        &sell,
         &deal_price,
         &last_buy,
         &BigDecimal::zero(),
@@ -262,7 +264,7 @@ fn equals_buy(
     Some(fill_event(
         &symbol,
         &buy,
-        &sell.trust_order_no,
+        &sell,
         &deal_price,
         &last_buy,
         &BigDecimal::zero(),
@@ -320,7 +322,7 @@ pub(crate) fn rather_than_sell(book: &mut OrderBook) -> RatherThanSellResult {
         RatherThanSellResult::Fill(fill_event(
             &symbol,
             &sell,
-            &buy.trust_order_no,
+            &buy,
             &deal_price,
             &last_buy,
             &taker_rem,
@@ -369,7 +371,7 @@ fn less_than_sell(
     fill_event(
         &symbol,
         &sell,
-        &buy.trust_order_no,
+        &buy,
         &deal_price,
         &last_sell,
         &BigDecimal::zero(),
@@ -401,7 +403,7 @@ fn equals_sell(
     fill_event(
         &symbol,
         &sell,
-        &buy.trust_order_no,
+        &buy,
         &deal_price,
         &last_sell,
         &BigDecimal::zero(),

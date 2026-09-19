@@ -9,6 +9,7 @@
 | `match-protocol` | **100%** branches |
 | `match-core` | **100%** branches |
 | `match-core-hp` (default + `--features art`) | **100%** branches |
+| `match-spot` (lib; ignore `main.rs`) | **100%** branches |
 
 ## Soft gate (high coverage, race arms)
 
@@ -22,7 +23,7 @@
 |-------|-------|
 | `match-replay` | Golden + diff; CLI `main.rs` ignored |
 | `match-contract` | I/O shell (Redis/RPC/MQ); not in branch gate |
-| `match-bench` / `match-spot` | Bench harness / stub |
+| `match-bench` | Bench harness |
 
 Defensive or race-only arms may use `#[coverage(off)]` under `cfg(coverage)` with a short comment (runtime behavior unchanged).
 
