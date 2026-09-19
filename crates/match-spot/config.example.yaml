@@ -1,0 +1,33 @@
+shard:
+  main_stream: 0
+
+startup_delay_ms: 3000
+depth_push_interval_ms: 1000
+symbol_workers: 1
+
+health:
+  port: 31016
+  enabled: true
+
+rocketmq:
+  name_server: "127.0.0.1:9876"
+  consumer_group: contract_match_group
+  transport: memory
+  enable_mm_consumer: true
+
+redis:
+  cluster_nodes:
+    - "127.0.0.1:6379"
+  password: ""
+
+rpc:
+  market_base_url: "http://127.0.0.1:8080"
+  order_base_url: "http://127.0.0.1:8081"
+
+match:
+  queue_capacity: 4096
+  symbols_whitelist: []
+
+topic_split:
+  topic_enable: false
+  topic_coin_markets: []
