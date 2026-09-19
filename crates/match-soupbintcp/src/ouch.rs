@@ -222,6 +222,29 @@ pub fn encode_accepted(m: &Accepted) -> Vec<u8> {
     b
 }
 
+/// Encode an Executed report (34 bytes).
+pub fn encode_executed(m: &Executed) -> Vec<u8> {
+    let mut b = Vec::with_capacity(EXECUTED_LEN);
+    b.push(b'E');
+    push_u64(&mut b, m.timestamp);
+    pad_alpha(&mut b, &m.token, 14);
+    push_u32(&mut b, m.shares);
+    push_u32(&mut b, m.match_number);
+    push_i32(&mut b, m.price);
+    b
+}
+
+/// Encode a Canceled report (27 bytes).
+pub fn encode_canceled(m: &Canceled) -> Vec<u8> {
+    let mut b = Vec::with_capacity(CANCELED_LEN);
+    b.push(b'C');
+    push_u64(&mut b, m.timestamp);
+    pad_alpha(&mut b, &m.token, 14);
+    push_u32(&mut b, m.decrement);
+    b.push(m.reason);
+    b
+}
+
 // ---- decode ----
 
 fn get_str(b: &[u8], off: usize, len: usize) -> String {
