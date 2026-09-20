@@ -192,3 +192,16 @@ DPDK rx_burst → udp_payload → parse_stream → ClientSession，序列号连�
 ### 9.5 结论
 
 吞吐优先级：批量打包 > 并发连接 > 单连接优化；故障恢复由"重登录 + requested_seq 重放"统一覆盖。
+
+### 9.6 下单性能对比（soup_cmp_bench，orders=50,000，2026-09-20）
+
+| 场景 | 吞吐 | RTT p50 | RTT p99 | 说明 |
+|---|---|---|---|---|
+| 裸 TCP echo 基线 | 15,654/s | 53.9 µs | 190 µs | 无协议层/无会话状态 |
+| SoupBinTCP 单条 | 15,089/s | 54.9 µs | 174 µs | 登录+parse_stream+OUCH+会话 |
+| 批量 batch=10 | 124,477/s | 7.0 µs | 22.6 µs | RTT 按笔折算 |
+| 批量 batch=100 | 339,247/s | 2.6 µs | 5.0 µs | 21× 延迟 / 22× 吞吐 vs 单条 |
+| 多成交 fills=2 | 16,587/s | 55.2 µs | 121 µs | 1 Accepted + 1 Executed |
+| 多成交 fills=10 | 15,497/s | 59.2 µs | 122 µs | 延迟仅 +4 µs |
+
+结论：协议层边际开销 ≈1µs；批量是延迟/吞吐第一杠杆；多成交几乎无影响。
