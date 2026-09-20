@@ -1,0 +1,16 @@
+[package]
+name = "match-udp-order"
+description = "Private UDP order-entry protocol for market-making / HFT: per-direction seq, ORDER_ACK, report seq + NAK retransmission, reconnect via HELLO watermark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[lib]
+name = "match_udp_order"
+
+[dependencies]
+libc = "0.2"
+match-soupbintcp = { path = "../match-soupbintcp" }
+match-core = { path = "../match-core" }
+match-protocol = { path = "../match-protocol" }
