@@ -1023,6 +1023,7 @@ version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "core_affinity",
+ "libc",
  "match-protocol",
  "rustc-hash",
  "thiserror 1.0.69",
@@ -1097,6 +1098,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "match-core",
+ "match-core-hp",
  "match-protocol",
  "match-soupbintcp",
 ]
