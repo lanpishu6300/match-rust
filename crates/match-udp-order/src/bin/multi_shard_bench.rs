@@ -111,10 +111,12 @@ fn main() {
     }
 
     // 路由并发送订单
+    // symbol 轮转用 (k/2) 而非 (k)：k%2(side) 与 k%128(symbol 步长, 偶数) 同奇偶时，
+    // 每个 symbol 只收到单边订单、永不成交、订单簿 O(n²) 堆积（contains_order_no 线性扫描）。
     let t0 = Instant::now();
     let mut per_shard = vec![0usize; shards];
     for k in 0..orders {
-        let sym_id = k % SYMBOL_SPACE;
+        let sym_id = (k / 2) % SYMBOL_SPACE;
         let sym = format!("sym_{sym_id:03}");
         let side = if k % 2 == 0 { ORDER_TYPE_BUY } else { ORDER_TYPE_SELL };
         let price = if k % 2 == 0 { "100.00" } else { "99.99" };
