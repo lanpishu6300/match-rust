@@ -446,3 +446,23 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 3. **粒度是关键**：4096 条/次（~150KB）是 macOS SSD 的甜点；过大的批（32768）刷盘延迟抖动反而伤 p999。
 4. **生产建议**：journal-first（先 append 命令再撮合）已按 Disruptor 语义集成在 bench 中；落盘策略
    用自适应批量（如 4096 条或 1ms 定时），崩溃恢复 = 回放 `iter_records()` 重建 book。
+
+## §6.13 崩溃恢复 + 回放验证（2026-09-22）
+
+**实现**（`hp_journal_crash_test` + journal.rs 增强）：
+- journal 文件头 8B 存 `committed_cursor`；`commit()` = **先数据后元数据**顺序：
+  ① msync(数据区 MS_SYNC) ② 写 header ③ msync(header 页)——header 可见即数据必已落盘。
+- 崩溃恢复 = `open_existing`（不 truncate）→ 读 committed_cursor → 回放 `[8, committed)` 前缀重建 book。
+- 未提交尾部按"崩溃时未持久化"丢弃（设计语义）。
+
+**验证（真实 SIGKILL 注入，macOS）**：
+
+| 场景 | 结果 |
+|---|---|
+| 正常退出全量恢复 | 200,000 单全部恢复，fills=50,000，bid=99950/ask=100500，与检查点一致 |
+| SIGKILL 中途（kill 时已 commit 24,576 单） | 回放恢复恰好 24,576 单，fills=6,144（精确 =N/4），book 状态与子进程实时检查点一致 |
+| 确定性核对 | 子进程每次 commit 后写检查点（订单数/bid/ask/fills）→ 回放侧取 `orders<=回放数` 最后一条比对——跨进程状态一致，非自证 |
+
+**结论**：
+1. **崩溃一致性闭环**：committed 前缀精确恢复、尾部按设计丢弃、book 状态可复现——6M/s 持久化链路（journal-first + 批量 MS_SYNC + 崩溃回放）全部闭合。
+2. **边界**：单盘介质故障不防（需 RAID 镜像）；header 与数据在同一文件（生产可拆双文件/跨盘）；回放是顺序重放（恢复时间 ∝ 日志量，生产建议周期性快照 + 增量回放）。
