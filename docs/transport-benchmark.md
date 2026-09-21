@@ -387,3 +387,33 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 4. **语义简化**：HpEngine 每 client_id 仅允许一个在途订单（`client_to_id` 查重后静默丢弃），省掉重复检查路径。
 
 **结论**：HpEngine 的 30-66× 优势 = **整数表示 + 零分配事件 + level book 索引**的合力，不是单一算法胜出。"赢在表示"——若自营链路（DPDK 形态 D）要用满用户态收益，**订单表示必须整数化（tick/lot），不应再走 String 序列化**；外部协议（OUCH/SoupBinTCP）的 String 表示留在网关边界转换。
+
+### 6.11 RSS 直分 + HpEngine 全链路，及 DPDK UDP 结合效果（2026-09-21）
+
+**口径：独立客户端生成（HpCommand 整数）→ match-core-hp SpscRing（RSS 队列投递）→ 撮合线程 HpEngine**（hp_client_shard_bench），与 client_shard_bench（BbOrder + Engine）同形态：
+
+| shards | client_shard（String+Engine） | hp_client_shard（整数+HpEngine） | 比值 |
+|---|---|---|---|
+| 1 | 1.05M/s | 25.5M/s | 24× |
+| 2 | 1.95M/s | 58.6M/s | 30× |
+| 4 | 2.98M/s | 61.0M/s | 20× |
+| 8 | 3.20M/s | 45.3M/s | 14× |
+
+> 8-shard 时 hp 侧下滑（45M vs 4sh 61M）：16 线程抢 10 核调度 + 短时测量噪声；gen_rate 6.8M/s 非瓶颈。client_shard 8-shard 时客户端 String 生成 430k/s 是硬瓶颈——**换 HpEngine 后瓶颈消失**。
+
+**DPDK UDP + HpEngine 效果（诚实标注：估算 + 锚点，无完整链路实测）**：
+
+| 环节 | 已有锚点 | 说明 |
+|---|---|---|
+| DPDK rx_burst 收包 | 云 VM pcap 回放处理侧 p50 1.0µs | pcap 文件 IO 是 230k/s 瓶颈，非处理 |
+| UDP 私有帧解析 | ~0.5-1µs（云 VM 实测处理侧） | 与 pcap 回放同路径 |
+| HpEngine 撮合 | 26M/s @1shard / 103M @8shards | 本机实测，~40ns/单 |
+| RSS+ring+撮合全链路 | 45M/s @8shards | 本机实测，无网络栈上界 |
+
+**预期（估算）**：DPDK UDP + HpEngine 真机全链路 **2-10M 单/s**、端到端处理延迟 **1.5-3µs**——瓶颈从引擎转移到 **DPDK 收包/解析**（rx_burst 批大小、UDP 头解析、cache）。
+
+**结论**：
+
+1. **HpEngine 形态下引擎不再是瓶颈**（~40ns/单），DPDK UDP 链路吞吐由收包速率决定（2-10M/s 级，业界 PMD 常规）；对比内核 TCP RSS（116k/s、18-62µs）仍是量级提升。
+2. **RSS 直分 + HpEngine 全链路（45M/s）证明"用户态路径 + 整数表示"组合无软件侧短板**——剩余瓶颈全部在网卡/收包（硬件侧），这正是形态 D 的最终形态：DPDK 收包 + HpEngine 撮合 + 整数化订单表示。
+3. **诚实边界**：45M/s 是无网络栈上界；DPDK 真机 2-10M/s 为估算（云 VM 只能 pcap 回放、Mac 无 DPDK）——需真机验证。
