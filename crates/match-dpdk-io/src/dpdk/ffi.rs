@@ -168,3 +168,51 @@ pub unsafe fn rte_pktmbuf_append(m: *mut rte_mbuf, len: u16) -> *mut u8 {
 pub unsafe fn rte_pktmbuf_free(m: *mut rte_mbuf) {
     bridge_pktmbuf_free(m)
 }
+
+// DPDK 23.11 rte_eth_stats 完整布局（前 7 个 u64 标量 + 5×RTE_ETHDEV_QUEUE_STAT_CNTRS(32) 数组）
+// 尺寸必须与头文件一致，否则 rte_eth_stats_get 写越界破坏栈（SEGV）
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct rte_eth_stats {
+    pub ipackets: u64,
+    pub opackets: u64,
+    pub ibytes: u64,
+    pub obytes: u64,
+    pub imissed: u64,
+    pub oerrors: u64,
+    pub rx_nombuf: u64,
+    pub q_ipackets: [u64; 32],
+    pub q_opackets: [u64; 32],
+    pub q_ibytes: [u64; 32],
+    pub q_obytes: [u64; 32],
+    pub q_errors: [u64; 32],
+}
+
+impl Default for rte_eth_stats {
+    fn default() -> Self {
+        rte_eth_stats {
+            ipackets: 0,
+            opackets: 0,
+            ibytes: 0,
+            obytes: 0,
+            imissed: 0,
+            oerrors: 0,
+            rx_nombuf: 0,
+            q_ipackets: [0; 32],
+            q_opackets: [0; 32],
+            q_ibytes: [0; 32],
+            q_obytes: [0; 32],
+            q_errors: [0; 32],
+        }
+    }
+}
+
+extern "C" {
+    fn rte_eth_stats_get(port_id: u16, stats: *mut rte_eth_stats) -> c_int;
+}
+
+pub unsafe fn eth_stats_get(port_id: u16) -> rte_eth_stats {
+    let mut st = rte_eth_stats::default();
+    unsafe { rte_eth_stats_get(port_id, &mut st) };
+    st
+}

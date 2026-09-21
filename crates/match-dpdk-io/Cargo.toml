@@ -11,3 +11,6 @@ description = "DPDK (Linux-only) I/O backend for match-moldudp64: mbuf zero-copy
 [target.'cfg(target_os = "linux")'.dependencies]
 match-moldudp64 = { path = "../match-moldudp64" }
 match-soupbintcp = { path = "../match-soupbintcp" }
+match-udp-order = { path = "../match-udp-order" }
+match-core = { path = "../match-core" }
+match-protocol = { path = "../match-protocol" }

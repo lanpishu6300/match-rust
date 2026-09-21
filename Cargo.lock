@@ -1032,8 +1032,11 @@ dependencies = [
 name = "match-dpdk-io"
 version = "0.1.0"
 dependencies = [
+ "match-core",
  "match-moldudp64",
+ "match-protocol",
  "match-soupbintcp",
+ "match-udp-order",
 ]
 
 [[package]]
