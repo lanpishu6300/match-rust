@@ -196,7 +196,8 @@ fn server_main(orders_target: usize, port: u16) -> std::io::Result<u64> {
             }
         }
         if orders_target > 0 && processed >= orders_target as u64 && closing_at.is_none() {
-            closing_at = Some(Instant::now() + Duration::from_secs(3));
+            // 15s 优雅期：覆盖 50k 级尾部 REPORT 缺口的多轮 NAK 补帧收敛
+            closing_at = Some(Instant::now() + Duration::from_secs(15));
         }
         if got {
             if processed > 0 && processed % 5000 == 0 {
@@ -269,9 +270,9 @@ fn client_main(orders: usize, nak_test: bool, port: u16) -> std::io::Result<()> 
             sent += 1;
         }
         // 2) 回报停滞检测：尾部 REPORT 丢失时（无后续帧触发缺口），立即 NAK 补帧
-        //    count=256（响应 <4KB，远小于 UDP 64KB 上限，避免响应被截断丢弃）
-        if reports > 0 && last_report_at.elapsed() > Duration::from_millis(200) {
-            let _ = sock.send(&cli.nak_request(cli.expected_report_seq(), 256));
+        //    count=512（响应 ~10.8KB < 64KB 上限，避免响应被截断丢弃）
+        if reports > 0 && last_report_at.elapsed() > Duration::from_millis(100) {
+            let _ = sock.send(&cli.nak_request(cli.expected_report_seq(), 512));
             last_report_at = Instant::now();
         }
         // 3) 收并处理本窗回报（NAK/重发输出追加到 out_buf 尾部；50ms 窗口 > server 处理 512 笔时间，防积压）
