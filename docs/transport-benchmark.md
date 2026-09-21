@@ -417,3 +417,30 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 1. **HpEngine 形态下引擎不再是瓶颈**（~40ns/单），DPDK UDP 链路吞吐由收包速率决定（2-10M/s 级，业界 PMD 常规）；对比内核 TCP RSS（116k/s、18-62µs）仍是量级提升。
 2. **RSS 直分 + HpEngine 全链路（45M/s）证明"用户态路径 + 整数表示"组合无软件侧短板**——剩余瓶颈全部在网卡/收包（硬件侧），这正是形态 D 的最终形态：DPDK 收包 + HpEngine 撮合 + 整数化订单表示。
 3. **诚实边界**：45M/s 是无网络栈上界；DPDK 真机 2-10M/s 为估算（云 VM 只能 pcap 回放、Mac 无 DPDK）——需真机验证。
+
+## §6.12 mmap journal 持久化（Disruptor journal-first，2026-09-21）
+
+**实现**：`match-core-hp::MmapJournal`（`crates/match-core-hp/src/journal.rs`）——
+预分配文件 + `mmap(MAP_SHARED)`，记录格式 `[u32 len][payload]`，顺序游标 append（memcpy 到映射区），
+`msync(MS_SYNC/MS_ASYNC)` 落盘，`iter_records()` 从头回放重建。bench：`hp_journal_bench`。
+
+**口径（诚实标注）**：
+- mmap-append = page-cache 写（内存速度），**非崩溃一致**（OS 崩溃丢脏页）。
+- mmap + msync(MS_SYNC) = 真持久（阻塞落盘），吞吐 ≈ 批次大小 / msync 延迟（SSD 单次 0.1-2ms，波动大）。
+- 与 LMAX "journal 批量写 + 不逐条 fsync" 同口径；无 RAID 电池/专用日志盘保护。
+
+**实测（macOS，本地 SSD，200k 单/轮，3 轮）**：
+
+| 模式 | 吞吐（3 轮） | 中位数 | 备注 |
+|---|---|---|---|
+| no-persist（纯撮合） | 23.8 / 26.9 / 27.4M/s | ~26.9M/s | 基线 |
+| mmap-append（page-cache） | 22.0 / 21.7 / 23.8M/s | ~22.0M/s | -15%，非崩溃一致 |
+| mmap + msync every 4096 | 7.6 / 10.9 / 10.5M/s | ~10.5M/s | **真持久，3 轮全 >6M** |
+| msync every 32768 | 10.0 / 4.1 / 4.7M/s | ~4.7M/s | 大批次刷盘延迟抖动大 |
+
+**结论**：
+1. **6M/s 目标达成**：msync(4096) 粒度真持久 7.6-10.9M/s；mmap page-cache 22M/s（非崩溃一致）。
+2. **持久化成本分层**：纯撮合 27M → mmap 写 -15%（memcpy 到映射区）→ +MS_SYNC 批量刷盘再 -60%（磁盘延迟为主）。
+3. **粒度是关键**：4096 条/次（~150KB）是 macOS SSD 的甜点；过大的批（32768）刷盘延迟抖动反而伤 p999。
+4. **生产建议**：journal-first（先 append 命令再撮合）已按 Disruptor 语义集成在 bench 中；落盘策略
+   用自适应批量（如 4096 条或 1ms 定时），崩溃恢复 = 回放 `iter_records()` 重建 book。
