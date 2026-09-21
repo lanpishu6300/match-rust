@@ -20,3 +20,4 @@ match-protocol = { path = "../match-protocol" }
 bigdecimal = { workspace = true }
 rustc-hash = { workspace = true }
 core_affinity = { version = "0.8", optional = true }
+libc = "0.2"
