@@ -6,9 +6,14 @@
 //! - 落盘语义由调用方选择：`msync(false)` = MS_ASYNC（交给内核刷，**不是崩溃一致**）；
 //!   `msync(true)` = MS_SYNC（阻塞落盘，真持久）；批量模式下吞吐 = 批次大小 / msync 延迟。
 //!
-//! 诚实边界：mmap 写 page cache ≠ 持久（OS 崩溃丢未刷脏页）；只有 msync(MS_SYNC)/fsync 落盘。
-//! 6M/s 量级可达的前提：记录小（~30-60B）、顺序写带宽不是瓶颈（SSD 1-3GB/s）、
-//! msync 批量（如 1 万条一次）——与 LMAX "journal 批量写 + 不逐条 fsync" 同口径。
+//! 诚实边界：
+//! - mmap 写 page cache ≠ 持久（OS 崩溃丢未刷脏页）；只有 msync(MS_SYNC)/fsync 才落盘。
+//! - 与 LMAX/Aeron 的口径差异：LMAX journaler = mmap 批量流式写 + **不逐条 fsync**，
+//!   落盘靠 RAID 控制器电池备份（BBU）缓存兜底；Aeron = mmap 写 + **不主动 fsync**，
+//!   持久靠集群复制（RAFT）。本实现 = 纯软件 MS_SYNC（无 BBU/复制依赖），**比二者更严格**，
+//!   吞吐代价约 -60%（mmap-append 22M/s → msync(4096) 10.5M/s）。
+//! - 6M/s 量级可达的前提：记录小（~30-60B）、顺序写带宽不是瓶颈（SSD 1-3GB/s）、
+//!   msync 批量（如 4096 条一次）。若生产接受 BBU RAID 或跨机复制，可去掉 MS_SYNC 回到 22M/s。
 
 use std::fs::OpenOptions;
 use std::io;

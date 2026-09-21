@@ -427,7 +427,9 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 **口径（诚实标注）**：
 - mmap-append = page-cache 写（内存速度），**非崩溃一致**（OS 崩溃丢脏页）。
 - mmap + msync(MS_SYNC) = 真持久（阻塞落盘），吞吐 ≈ 批次大小 / msync 延迟（SSD 单次 0.1-2ms，波动大）。
-- 与 LMAX "journal 批量写 + 不逐条 fsync" 同口径；无 RAID 电池/专用日志盘保护。
+- **口径差异（重要）**：LMAX journaler = mmap 批量流式写 + **不逐条 fsync**，落盘靠 RAID 控制器
+  电池备份（BBU）缓存兜底；Aeron = mmap 写 + **不主动 fsync**，持久靠集群复制（RAFT）。
+  **本实现 = 纯软件 MS_SYNC（无 BBU/复制依赖），比二者更严格**，吞吐代价约 -60%。
 
 **实测（macOS，本地 SSD，200k 单/轮，3 轮）**：
 
