@@ -14,3 +14,4 @@ libc = "0.2"
 match-soupbintcp = { path = "../match-soupbintcp" }
 match-core = { path = "../match-core" }
 match-protocol = { path = "../match-protocol" }
+match-core-hp = { path = "../match-core-hp" }

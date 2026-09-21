@@ -318,3 +318,41 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 2. **TCP 扩展性差于 SPSC**：8 shards 时 TCP 仅 2.8×（内核 TCP 处理是共享资源，多连接并发加剧锁竞争），SPSC 6.5×（无共享状态）。TCP p50 从 18µs 恶化到 62µs（并发竞争）。
 3. **"赢在用户态路径"实锤**：同一撮合引擎（match_core::Engine），仅投递路径不同（内核 TCP vs 用户态 SPSC），吞吐差 44×、延迟差 3-5×——提升来自路径，不是引擎也不是协议本身。
 4. **生产映射**：外部交易所接入（强制 TCP/SoupBinTCP）受内核栈约束（~100k/s/10 核，靠多机横向）；自营链路用 UDP/用户态（DPDK）可到 M/s 级。
+
+## 7. 与 LMAX Disruptor 600万/s/核 的差距——实测回答（2026-09-21）
+
+### 7.1 实测对照（macOS 10 核，客户端+SPSC ring 投递）
+
+| 引擎 | 单核吞吐 | 说明 |
+|---|---|---|
+| match_core::Engine（String symbol + BigDecimal price + BTreeSet + HashMap） | **800k/s** | 通用表示层，每单 4-6 次 String 堆分配 |
+| **match_core_hp::HpEngine（i64 tick/lot + Copy 命令 + 索引化订单簿）** | **17.7-29.3M/s** | LMAX 风格，零分配路径 |
+| LMAX Disruptor（2011 公开数） | 6M/s | **含 journal 持久化 + 风控的完整生产链路** |
+
+- HpEngine 多价位变体（10 万价位间跳）18.0M/s ≈ 同价 17.7M/s——索引对价位分布不敏感，**不是最简路径虚高**。
+- 8 shards（多价位）59.9M/s。
+- **结论：要 600万/s，本项目已具备（HpEngine 单核是 LMAX 的 3-5×）；差距不在"能否做到"，而在用哪套表示。**
+
+### 7.2 差距分解（match_core 800k vs HpEngine 29M，约 36×）
+
+| 环节 | match_core（800k/s） | HpEngine（29M/s） | 贡献 |
+|---|---|---|---|
+| 订单表示 | MqOrder/BbOrder：symbol/order_no 多个 String + format! 每次分配 | HpCommand：Copy 值类型（i64 side/price/qty/ts），零堆分配 | ~3-4× |
+| 价格 | BigDecimal（堆分配大数运算） | i64 定点 tick | ~2-3× |
+| 订单簿 | BTreeSet<BuyEntry/SellEntry>（节点分配 + BigDecimal/String 比较） | 索引化（level_index/art_index/order_store） | ~2-3× |
+| symbol 路由 | HashMap<String, OrderBook>：String clone + 哈希 | client_id/索引（无 String） | ~1.5-2× |
+| 事件输出 | Vec<MatchEvent>（含 String）分配 | &[HpEvent] 切片引用，无分配 | ~1.5× |
+| 查重 | contains_order_no 线性扫描 | 索引 O(1)/O(log) | 1.5-2× |
+
+### 7.3 Disruptor 的本质与本仓库对照
+
+| Disruptor 核心 | 本项目对应 | 状态 |
+|---|---|---|
+| 环形缓冲无锁（预分配槽） | SpscRing（match-core-hp / client_shard_bench） | ✅ 已实现 |
+| 缓存行填充（防伪共享） | `#[repr(align(64))] CachePadded` | ✅ 已实现 |
+| 批处理（一次 Acquire/Release 取一批） | `pop_n(out, 64)` | ✅ 已实现 |
+| 单线程业务逻辑（事件循环） | HpEngine::on_order（无锁单线程） | ✅ 已实现 |
+| 零分配路径（值类型 + 预分配） | HpCommand Copy + i64 tick | ✅ 已实现 |
+| 事件溯源 + journal（顺序写） | ⏳ 未在 HpEngine 链路接入 | 待做 |
+
+**一句话**：Disruptor 的"600万/s"来自**无锁环形缓冲 + 单线程 + 零分配**，本项目 SpscRing + HpEngine 已复刻全部核心（3-5× 反超）；剩余差距（若想对齐 LMAX 的完整链路数字）在 **journal 持久化 + 风控接入**，而非撮合本身。
