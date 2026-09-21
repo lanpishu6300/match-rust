@@ -110,3 +110,30 @@ DPDK_VDEV="--vdev=net_pcap0,rx_pcap=/tmp/in.pcap,tx_pcap=/tmp/gw_out.pcap" \
 ./target/release/multi_shard_bench --shards 4 --orders 20000
 ./target/release/multi_shard_bench --shards 8 --orders 20000
 ```
+
+### 6.5 真机多核验证（macOS 10 核，50000 单）
+
+| shards | 总吞吐 | 相对 1-shard | 观察 |
+|---|---|---|---|
+| 1 | 339k/s | 1.0× | 单核基线 |
+| 2 | **665k/s** | **1.96×** | **接近线性 2×**（双 worker 并行兑现） |
+| 4 | 654k/s | 1.93× | 不再增长（路由单点成为瓶颈） |
+| 8 | 473k/s | 1.4× | 回落（线程调度竞争） |
+
+**关键结论（修正 6.3）**：
+
+1. **2 shards 接近线性**（1.96×）——分片并行收益在真机双核上完全兑现。
+2. **4/8 shards 不扩展**——与云 VM 2 核结果一致，根因不是 CPU 核数（Mac 有 10 核），而是**路由/发送单点**：主线程串行把订单 send 到各 shard channel，路由速率就是总吞吐上限；shard 数超过 ~2 后，engine 并行已耗尽，主线程路由 + 线程调度成为瓶颈。
+3. **线性扩展的正确形态**：不是"主线程路由 + N worker"，而是 **DPDK 多队列 RSS 直接分发**——网卡按 hash(symbol) 把报文分散到 N 个独立收包队列，每队列绑定一个 shard 线程，**无主线程路由单点**。这才是"多 shard 按标的分片"的生产形态。
+4. **本 bench 价值**：验证了分片并行收益（2×）与路由单点约束（4+ 无增益）——生产实现需 RSS 直分，而非软件路由。
+
+### 6.6 生产形态（RSS 直分）
+
+```
+NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 网卡级分流，无软件路由
+                   ──队列1──▶ shard1(收包+撮合+回报)
+                   ──队列2──▶ shard2(收包+撮合+回报)
+```
+- 每队列独立 PMD 收包线程 + Engine，symbol 哈希分布由网卡 RSS 完成。
+- 吞吐 = min(网卡线速, N × 单核 engine 上限)，无软件单点。
+- 回报可经每队列 tx 独立回发（或聚合网关）。
