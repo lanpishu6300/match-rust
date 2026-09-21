@@ -21,10 +21,10 @@ fn main() {
         // libdpdk-dev (installed into /usr/include in the image), or a
         // user-level install pointed at by $DPDK_HOME.
         let home = std::env::var("DPDK_HOME").ok();
-        let mut lib_dirs = vec![
-            "/usr/lib/aarch64-linux-gnu",
-            "/usr/lib/x86_64-linux-gnu",
-            "/usr/lib",
+        let mut lib_dirs: Vec<String> = vec![
+            "/usr/lib/aarch64-linux-gnu".into(),
+            "/usr/lib/x86_64-linux-gnu".into(),
+            "/usr/lib".into(),
         ];
         if let Some(h) = &home {
             lib_dirs.insert(0, format!("{h}/lib/x86_64-linux-gnu"));
@@ -67,20 +67,20 @@ fn main() {
         let out = std::env::var("OUT_DIR").expect("OUT_DIR");
         let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
         let arch_inc = if std::fs::metadata("/usr/include/aarch64-linux-gnu/dpdk").is_ok() {
-            "-I/usr/include/aarch64-linux-gnu/dpdk"
+            "-I/usr/include/aarch64-linux-gnu/dpdk".to_string()
         } else if std::fs::metadata("/usr/include/x86_64-linux-gnu/dpdk").is_ok() {
-            "-I/usr/include/x86_64-linux-gnu/dpdk"
+            "-I/usr/include/x86_64-linux-gnu/dpdk".to_string()
+        } else if let Some(h) = &home {
+            format!("-I{h}/include/dpdk")
         } else {
-            home.as_ref()
-                .map(|h| format!("-I{h}/include/dpdk"))
-                .unwrap_or_default()
+            String::new()
         };
         let main_inc = if std::fs::metadata("/usr/include/dpdk").is_ok() {
-            "-I/usr/include/dpdk"
+            "-I/usr/include/dpdk".to_string()
+        } else if let Some(h) = &home {
+            format!("-I{h}/include/dpdk")
         } else {
-            home.as_ref()
-                .map(|h| format!("-I{h}/include/dpdk"))
-                .unwrap_or_default()
+            String::new()
         };
         let ok = std::process::Command::new(&cc)
             .args([
@@ -92,6 +92,7 @@ fn main() {
                 &arch_inc,
                 "-include",
                 "rte_config.h",
+                "-mssse3",
             ])
             .status()
             .expect("run cc")
@@ -108,7 +109,7 @@ fn main() {
 
         // Link every installed librte_*.so (safe: the runtime closure is
         // exactly what the pcap PMD path needs) plus pcap/numa if present.
-        for dir in ["/usr/lib/aarch64-linux-gnu", "/usr/lib/x86_64-linux-gnu", "/usr/lib"] {
+        for dir in &lib_dirs {
             if let Ok(rd) = std::fs::read_dir(dir) {
                 for e in rd.flatten() {
                     let n = e.file_name().to_string_lossy().into_owned();
