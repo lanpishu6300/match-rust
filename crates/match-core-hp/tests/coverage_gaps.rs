@@ -371,7 +371,7 @@ fn maker_with_zero_client_id_still_fills_on_sell_taker() {
 }
 
 #[test]
-fn duplicate_limit_client_id_is_rejected() {
+fn same_client_limit_can_rest_on_both_sides() {
     let mut e = HpEngine::new();
     e.on_order(HpCommand::Limit {
         side: Side::Buy,
@@ -387,13 +387,15 @@ fn duplicate_limit_client_id_is_rejected() {
         ts: 2,
         client_id: 42,
     });
-    assert!(ev.is_empty());
+    // 同 client 支持多在途：第二单挂卖 110 rest（不再被拒）。
+    assert!(ev.iter().any(|e| matches!(e, HpEvent::Rest { .. })));
     assert_eq!(e.book.best_bid(), Some(100));
-    assert!(e.book.best_ask().is_none());
+    assert_eq!(e.book.best_ask(), Some(110));
+    assert_eq!(e.client_map_len(), 1);
 }
 
 #[test]
-fn duplicate_market_client_id_is_rejected() {
+fn same_client_market_consumes_own_resting_order() {
     let mut e = HpEngine::new();
     e.on_order(HpCommand::Limit {
         side: Side::Buy,
@@ -409,8 +411,10 @@ fn duplicate_market_client_id_is_rejected() {
         max_fills: None,
         client_id: 7,
     });
-    assert!(ev.is_empty());
-    assert_eq!(e.book.best_bid(), Some(100));
+    // 同 client 可在途多单：Market Sell 吃掉自己的挂买（自成交路径允许，不再被拒）。
+    assert!(ev.iter().any(|e| matches!(e, HpEvent::Fill { .. })));
+    assert!(e.book.best_bid().is_none());
+    assert_eq!(e.client_map_len(), 0);
 }
 
 #[test]
