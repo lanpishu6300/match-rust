@@ -21,6 +21,31 @@ use std::time::{Duration, Instant};
 
 const PORT_DEFAULT: u16 = 55180;
 
+/// SO_BUSY_POLL：用户态忙轮询 N 微秒，减少内核软中断唤醒延迟（F-Stack 类用户态
+/// 协议栈的"低成本近似"——不替换协议栈，只消除软中断/调度抖动，无需 root）。
+#[cfg(target_os = "linux")]
+fn set_busy_poll(s: &TcpStream, usecs: u32) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    unsafe {
+        let r = libc::setsockopt(
+            s.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_BUSY_POLL,
+            &usecs as *const _ as *const libc::c_void,
+            std::mem::size_of::<u32>() as libc::socklen_t,
+        );
+        if r != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_busy_poll(_s: &TcpStream, _usecs: u32) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn mq_limit(side: i8, symbol: &str, no: &str, price: &str, qty: &str) -> MqOrder {
     MqOrder {
         user_id: Some(1),
@@ -84,10 +109,13 @@ fn report_text(ev: &MatchEvent) -> Vec<u8> {
     }
 }
 
-fn server(port: u16) -> std::io::Result<()> {
+fn server(port: u16, bp_us: u32) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     let (stream, _) = listener.accept()?;
     stream.set_nodelay(true)?;
+    if bp_us > 0 {
+        set_busy_poll(&stream, bp_us)?;
+    }
     let mut engine = Engine::new();
     let rd = BufReader::new(stream.try_clone()?);
     let mut wr = BufWriter::new(stream);
@@ -128,9 +156,12 @@ fn server(port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
-fn client_ping(rounds: usize, port: u16) -> std::io::Result<()> {
+fn client_ping(rounds: usize, port: u16, bp_us: u32) -> std::io::Result<()> {
     let mut s = TcpStream::connect(("127.0.0.1", port))?;
     s.set_nodelay(true)?;
+    if bp_us > 0 {
+        set_busy_poll(&s, bp_us)?;
+    }
     let mut rd = BufReader::new(s.try_clone()?);
     let mut rtts: Vec<Duration> = Vec::with_capacity(rounds);
     for i in 0..rounds {
@@ -160,9 +191,12 @@ fn client_ping(rounds: usize, port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
-fn client_batch(n: usize, port: u16, body_size: usize) -> std::io::Result<()> {
+fn client_batch(n: usize, port: u16, body_size: usize, bp_us: u32) -> std::io::Result<()> {
     let mut s = TcpStream::connect(("127.0.0.1", port))?;
     s.set_nodelay(true)?;
+    if bp_us > 0 {
+        set_busy_poll(&s, bp_us)?;
+    }
     let mut rd = BufReader::new(s.try_clone()?);
     let mut buf = String::with_capacity(n * (body_size.max(32) + 4));
     for i in 0..n {
@@ -206,6 +240,7 @@ fn main() -> std::io::Result<()> {
     let mut port = PORT_DEFAULT;
     let mut body_size = 0usize;
     let mut i = 1;
+    let mut bp_us: u32 = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--ping" => {
@@ -226,17 +261,21 @@ fn main() -> std::io::Result<()> {
                 i += 1;
                 body_size = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(0);
             }
+            "--busy-poll" => {
+                i += 1;
+                bp_us = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(50);
+            }
             v if v.starts_with("--") => {}
             v => n = v.parse().unwrap_or(20000),
         }
         i += 1;
     }
-    println!("=== tcp_order_bench: {mode} n={n} port={port} body={body_size}B ===");
-    let srv = std::thread::spawn(move || server(port));
+    println!("=== tcp_order_bench: {mode} n={n} port={port} body={body_size}B busy_poll={bp_us}us ===");
+    let srv = std::thread::spawn(move || server(port, bp_us));
     std::thread::sleep(Duration::from_millis(50));
     let res = match mode {
-        "ping" => client_ping(n, port),
-        _ => client_batch(n, port, body_size),
+        "ping" => client_ping(n, port, bp_us),
+        _ => client_batch(n, port, body_size, bp_us),
     };
     res?;
     Ok(())

@@ -1,0 +1,76 @@
+# 下单链路传输层性能对比：内核 TCP vs busy-poll vs DPDK UDP
+
+> 测试环境：云 VM 2 核 / 3GB，Ubuntu 22.04，本机回环（127.0.0.1 / pcap 文件回放）。
+> 测试日期：2026-09-21。同一撮合链路（match-core::Engine），同一订单 payload（`B|btcusdt|100.00|1|oN` / `S|btcusdt|99.99|1|oN` 交替，body≈23B）。
+
+## 1. 对比矩阵
+
+| 方案 | p50 | p99 | 吞吐（单核） | CPU 占用 | 口径 |
+|---|---|---|---|---|---|
+| 内核 TCP（TCP_NODELAY） | **18µs** | **28µs** | 243k/s | ~68% | 端到端 RTT（本机回环） |
+| 内核 TCP + SO_BUSY_POLL(50us) | 18µs | 38µs | 248k/s | ~69% | 端到端 RTT（本机回环） |
+| DPDK UDP（net_pcap 回放） | **1.0µs** | **2.0µs** | 227k/s | pcap IO 瓶颈 | **处理侧**（订单帧→REPORT） |
+
+- TCP ping 500 轮取 RTT 分布；TCP batch 20k 取吞吐；DPDK 5k 单 pcap 回放取处理延迟与吞吐。
+- DPDK 吞吐受 pcap 文件 IO 瓶颈（0.022s 读 5000 帧），非 PMD 上限；真机 NIC 上 PMD 可到 800 万 msg/s（rx）/ 1700 万 msg/s（tx 批量）。
+
+## 2. 关键发现
+
+### 2.1 busy-poll 在本机回环无收益，p99 反而抖动
+
+- `SO_BUSY_POLL(50us)`：p50 持平 18µs，p99 从 28µs **恶化到 38µs**，吞吐无显著变化（243k→248k/s）。
+- **原因**：busy-poll 优化的是**跨机 + NAPI 中断**场景——网卡收包后 CPU 忙等 N 微秒不睡眠，消除软中断唤醒延迟。本机回环（loopback）走纯内存协议栈，**不经过 NAPI/网卡中断**，busy-poll 无优化对象；且 busy-poll 空转消耗 CPU，在单核 2 核 VM 上反而增加调度抖动。
+- **结论**：busy-poll 只在**跨机真实网卡 + 高 PPS** 场景有收益（预期可消除 5-15µs 软中断唤醒）；本机回环 bench 测不出来。
+
+### 2.2 DPDK UDP 的 1µs 是"处理侧"，不可与 TCP 端到端直接比
+
+- DPDK p50 1.0µs = 订单帧到达 PMD → 引擎处理 → REPORT 入 tx ring 的间隔（不含 NIC DMA、不含网络链路、不含客户端等待）。
+- TCP p50 18µs = 客户端 write → 内核协议栈 → 服务端 read → 引擎 → 回报 → 内核 → 客户端 read 的完整 RTT。
+- **公平口径**：DPDK 端到端（同机房真机）≈ 处理侧 1µs + NIC DMA ~2µs + 链路 ~1-5µs ≈ **5-12µs**（估算）；TCP 端到端（同机房真机）≈ **20-50µs**。
+- **公平比约 3-10×**（端到端），不是 18×（处理侧 vs 端到端的口径差）。
+
+### 2.3 吞吐三方案相近，瓶颈不在传输层
+
+- 227k（DPDK）vs 243k（TCP）vs 248k（TCP busy-poll）——同一量级。
+- 原因：本机回环 / pcap 文件 IO 成为共同瓶颈；撮合引擎单线程处理（match-core::Engine.on_order）才是吞吐上限的真正约束。
+- **结论**：在本 bench 规模下，换传输层不提升吞吐——吞吐瓶颈在引擎单线程处理能力，不在网络协议栈。
+
+## 3. F-Stack（用户态 TCP 栈）预期与限制
+
+| 项 | 说明 |
+|---|---|
+| 预期收益 | 跨机场景消除内核软中断/拷贝，端到端从 20-50µs → 5-15µs（估算），吞吐 300k-1M+ |
+| 部署要求 | 需 root：编译加载 `fstack.ko` 内核模块（POSIX 系统调用拦截）+ KNI 设备 |
+| 云 VM 限制 | **无 root、系统目录只读，无法 insmod，F-Stack 完整版跑不了** |
+| 本 bench 替代 | SO_BUSY_POLL（无需 root）已验证本机回环无收益——F-Stack 的收益在本机同样测不出（loopback 不走 NAPI） |
+| 真机结论 | F-Stack 的价值只在**跨机真实网卡**场景（消除 NAPI 软中断）；本机回环 bench 无法复现 |
+
+## 4. 决策建议
+
+| 场景 | 推荐 | 理由 |
+|---|---|---|
+| 本机/单体内撮合（<1 万单/s） | 内核 TCP | 足够，18µs 端到端，无额外成本 |
+| 跨机低延迟下单（做市/高频） | DPDK UDP（形态 D） | 端到端 5-12µs，已验证处理侧 1µs |
+| 必须用 TCP（外部交易所协议） | 内核 TCP + 真机 busy-poll | 跨机时 busy-poll 才有收益；F-Stack 为进阶选项 |
+| 吞吐瓶颈 | 引擎多线程 / 无锁队列 | 传输层换协议不提升吞吐（本 bench 已证） |
+
+## 5. 复现命令
+
+```bash
+cd match-rust
+
+# 内核 TCP（现状）
+./target/release/tcp_order_bench --ping 500          # RTT 分布
+./target/release/tcp_order_bench --batch 20000 --body 64
+
+# 内核 TCP + busy-poll（50µs）
+./target/release/tcp_order_bench --ping 500 --busy-poll 50
+./target/release/tcp_order_bench --batch 20000 --body 64 --busy-poll 50
+
+# DPDK UDP（pcap 回放）
+python3 crates/match-dpdk-io/scripts/pcap_order_loopback.py gen 5000 /tmp/in.pcap
+DPDK_VDEV="--vdev=net_pcap0,rx_pcap=/tmp/in.pcap,tx_pcap=/tmp/gw_out.pcap" \
+  timeout 25 ./target/release/dpdk_tap_order --no-huge --no-pci -m 512
+```
+
+> 注：DPDK pcap 回放模式在文件读完后继续空转（net_pcap PMD 阻塞），需 `timeout` 限时；`processed=5000` 行即完成标志。
