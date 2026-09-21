@@ -356,3 +356,34 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 | 事件溯源 + journal（顺序写） | ⏳ 未在 HpEngine 链路接入 | 待做 |
 
 **一句话**：Disruptor 的"600万/s"来自**无锁环形缓冲 + 单线程 + 零分配**，本项目 SpscRing + HpEngine 已复刻全部核心（3-5× 反超）；剩余差距（若想对齐 LMAX 的完整链路数字）在 **journal 持久化 + 风控接入**，而非撮合本身。
+
+### 6.10 HpEngine（match-core-hp）vs match_core::Engine（2026-09-21，macOS 10 核）
+
+两种引擎同形态对比（稳态成交：每 symbol 严格 B/S 交替，fills=50%）。
+
+**口径 A — 端到端（生成 + 撮合，shard 线程内即时构造）**：rss_shard_bench vs hp_shard_bench
+
+| shards | match_core::Engine（含 String 生成） | HpEngine（整数命令） | 比值 |
+|---|---|---|---|
+| 1 | 789k/s | 23.4M/s | 29.6× |
+| 8 | 5.13M/s | 124M/s | 24× |
+
+**口径 B — 纯撮合热路径（预生成订单 Vec，move 语义）**：engine_pure_bench
+
+| shards | match_core::Engine | HpEngine | 比值 |
+|---|---|---|---|
+| 1 | 781k/s | 26.2M/s | 33.5× |
+| 2 | 1.08M/s | 47.4M/s | 43.7× |
+| 4 | 1.36M/s | 73.0M/s | 53.9× |
+| 8 | 1.56M/s | 103M/s | 66.0× |
+
+> 注：口径 B 预生成大对象 Vec（BbOrder 含多 String）遍历有 cache-miss 影响，core 8-shard 扩展性偏低（1.44×，内存带宽竞争）；1-shard 与口径 A 一致（781k vs 789k）验证有效性。
+
+**差异归因（诚实拆解，非单一"算法快"）**：
+
+1. **数据表示（大头）**：BbOrder 用 String（symbol_key/trust_price/trust_number），HpEngine 用 i64 tick/lot——生成与解析从 ~1.2µs 降到 ns 级。
+2. **事件分配**：match_core 每次 `on_order` 返回 `Vec<MatchEvent>`（堆分配）；HpEngine 复用内部 buffer 返回 `&[HpEvent]`（零分配）。
+3. **数据结构**：match_core = `HashMap<String, OrderBook>` + BTreeSet + `contains_order_no` 线性扫描；HpEngine = level book（整数价格索引）+ 顺序 store 数组。
+4. **语义简化**：HpEngine 每 client_id 仅允许一个在途订单（`client_to_id` 查重后静默丢弃），省掉重复检查路径。
+
+**结论**：HpEngine 的 30-66× 优势 = **整数表示 + 零分配事件 + level book 索引**的合力，不是单一算法胜出。"赢在表示"——若自营链路（DPDK 形态 D）要用满用户态收益，**订单表示必须整数化（tick/lot），不应再走 String 序列化**；外部协议（OUCH/SoupBinTCP）的 String 表示留在网关边界转换。
