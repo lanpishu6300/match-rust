@@ -47,6 +47,8 @@ pub struct ServerSession {
     store: VecDeque<(u32, Vec<u8>)>,
     store_start: u32,
     store_cap: usize,
+    /// 已发起 NAK_REQUEST 的订单 gap 起点（同 gap 只 NAK 一次，防风暴）
+    last_nak_start: Option<u32>,
 }
 
 impl ServerSession {
@@ -57,6 +59,7 @@ impl ServerSession {
             store: VecDeque::new(),
             store_start: 1,
             store_cap: store_cap.max(1),
+            last_nak_start: None,
         }
     }
 
@@ -97,7 +100,15 @@ impl ServerSession {
                     // 重复重发（client 超时重传）→ 幂等确认，不重处理
                     packet::ACK_OK
                 } else {
-                    // 乱序 → 要求重发
+                    // 乱序 → 要求重发 + 主动 NAK_REQUEST（同 gap 只发一次，防风暴）
+                    if self.last_nak_start != Some(self.expected_client_seq) {
+                        self.last_nak_start = Some(self.expected_client_seq);
+                        let count = h.seq - self.expected_client_seq;
+                        let mut p = Vec::with_capacity(8);
+                        p.extend_from_slice(&self.expected_client_seq.to_be_bytes());
+                        p.extend_from_slice(&count.to_be_bytes());
+                        out.push(packet::encode(SESSION_MAGIC, 0, t::NAK_REQUEST, &p));
+                    }
                     packet::ACK_RETRY
                 };
                 out.push(packet::encode(SESSION_MAGIC, h.seq, t::ORDER_ACK, &[
@@ -381,13 +392,25 @@ mod tests {
     #[test]
     fn out_of_order_order_retry() {
         let mut srv = ServerSession::new(64);
-        // 模拟直接发包 seq=2
+        // 模拟直接发包 seq=2（期望 1）→ 乱序
         let dg = packet::encode(SESSION_MAGIC, 2, t::ORDER, b"x");
         let (evs, out) = drain_server(&mut srv, &dg);
         assert!(evs.is_empty());
+        // out = [NAK_REQUEST(1,1), ORDER_ACK(2, RETRY)]
+        assert_eq!(out.len(), 2);
         let (h, p) = packet::decode(&out[0]).unwrap();
+        assert_eq!(h.mtype, t::NAK_REQUEST);
+        assert_eq!(packet::u32_be(&p[0..4]), 1); // start=expected
+        assert_eq!(packet::u32_be(&p[4..8]), 1); // count=gap
+        let (h, p) = packet::decode(&out[1]).unwrap();
         assert_eq!(h.mtype, t::ORDER_ACK);
         assert_eq!(p[4], packet::ACK_RETRY);
+        // 同一 gap 的后续乱序帧不再重复 NAK（防风暴）
+        let dg2 = packet::encode(SESSION_MAGIC, 3, t::ORDER, b"y");
+        let (_, out2) = drain_server(&mut srv, &dg2);
+        assert_eq!(out2.len(), 1); // 仅 ORDER_ACK，无第二个 NAK
+        let (h, _) = packet::decode(&out2[0]).unwrap();
+        assert_eq!(h.mtype, t::ORDER_ACK);
     }
 
     #[test]

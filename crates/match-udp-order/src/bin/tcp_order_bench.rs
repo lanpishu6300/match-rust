@@ -160,17 +160,24 @@ fn client_ping(rounds: usize, port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
-fn client_batch(n: usize, port: u16) -> std::io::Result<()> {
+fn client_batch(n: usize, port: u16, body_size: usize) -> std::io::Result<()> {
     let mut s = TcpStream::connect(("127.0.0.1", port))?;
     s.set_nodelay(true)?;
     let mut rd = BufReader::new(s.try_clone()?);
-    let mut buf = String::with_capacity(n * 32);
+    let mut buf = String::with_capacity(n * (body_size.max(32) + 4));
     for i in 0..n {
-        if i % 2 == 0 {
-            buf.push_str(&format!("B|btcusdt|100.00|1|oB{i}\n"));
+        let base = if i % 2 == 0 {
+            format!("B|btcusdt|100.00|1|oB{i}")
         } else {
-            buf.push_str(&format!("S|btcusdt|99.99|1|oB{i}\n"));
+            format!("S|btcusdt|99.99|1|oB{i}")
+        };
+        let mut body = base;
+        if body.len() < body_size {
+            body.push('|');
+            body.push_str(&"x".repeat(body_size - body.len() - 1));
         }
+        buf.push_str(&body);
+        buf.push('\n');
     }
     let t = Instant::now();
     s.write_all(buf.as_bytes())?;
@@ -197,6 +204,7 @@ fn main() -> std::io::Result<()> {
     let mut mode = "batch";
     let mut n = 20000usize;
     let mut port = PORT_DEFAULT;
+    let mut body_size = 0usize;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -214,17 +222,21 @@ fn main() -> std::io::Result<()> {
                 i += 1;
                 port = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(PORT_DEFAULT);
             }
+            "--body" => {
+                i += 1;
+                body_size = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(0);
+            }
             v if v.starts_with("--") => {}
             v => n = v.parse().unwrap_or(20000),
         }
         i += 1;
     }
-    println!("=== tcp_order_bench: {mode} n={n} port={port} ===");
+    println!("=== tcp_order_bench: {mode} n={n} port={port} body={body_size}B ===");
     let srv = std::thread::spawn(move || server(port));
     std::thread::sleep(Duration::from_millis(50));
     let res = match mode {
         "ping" => client_ping(n, port),
-        _ => client_batch(n, port),
+        _ => client_batch(n, port, body_size),
     };
     res?;
     Ok(())

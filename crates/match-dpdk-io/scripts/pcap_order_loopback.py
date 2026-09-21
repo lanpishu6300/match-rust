@@ -41,7 +41,7 @@ def pcap_header():
 def pcap_packet(ts_us, data: bytes):
     return struct.pack("<IIII", ts_us // 1000000, ts_us % 1000000, len(data), len(data)) + data
 
-def gen(orders: int, path: str, delay_ms: float = 0.1):
+def gen(orders: int, path: str, delay_ms: float = 0.1, body_size: int = 0):
     pkts = []
     ts = 100_000_000  # 起始时间戳 100s（微秒）
     # HELLO
@@ -52,6 +52,9 @@ def gen(orders: int, path: str, delay_ms: float = 0.1):
         side = "B" if i % 2 == 0 else "S"
         price = "100.00" if side == "B" else "99.99"
         body = f"{side}|btcusdt|{price}|1|o{i}".encode()
+        if body_size and len(body) < body_size:
+            # padding 追加为第 6 段（parse_order 只取前 5 段，忽略多余段）
+            body = body + b"|" + b"x" * (body_size - len(body) - 1)
         pkt = struct.pack("!IIB", SESSION, i + 1, T_ORDER) + body
         pkts.append((ts, frame(pkt)))
         ts += int(delay_ms * 1000)
@@ -59,7 +62,7 @@ def gen(orders: int, path: str, delay_ms: float = 0.1):
         f.write(pcap_header())
         for t, d in pkts:
             f.write(pcap_packet(t, d))
-    print(f"[gen] {orders+1} frames -> {path}")
+    print(f"[gen] {orders+1} frames -> {path} (body={len(body)}B)")
 
 def parse(path: str):
     with open(path, "rb") as f:
@@ -128,6 +131,11 @@ def parse(path: str):
 
 if __name__ == "__main__":
     if sys.argv[1] == "gen":
-        gen(int(sys.argv[2]), sys.argv[3], float(sys.argv[4]) if len(sys.argv) > 4 else 0.1)
+        gen(
+            int(sys.argv[2]),
+            sys.argv[3],
+            float(sys.argv[4]) if len(sys.argv) > 4 else 0.1,
+            int(sys.argv[5]) if len(sys.argv) > 5 else 0,
+        )
     elif sys.argv[1] == "parse":
         parse(sys.argv[2])
