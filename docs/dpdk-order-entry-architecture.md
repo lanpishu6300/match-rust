@@ -83,3 +83,21 @@
 
 **MoldUDP64 链路的 DPDK 是"零成本直通"（协议就是为组播设计的）；
 SoupBinTCP 链路的 DPDK 是"搭桥后的解码加速"—— 别为了 DPDK 而 DPDK，先吃透会话重放语义，再谈微秒。**
+
+## 6. 形态 D：DPDK + 私有 UDP 下单（match-udp-order）—— 已验证 ✅（2026-09-21）
+
+```
+客户端 ──UDP──▶ [DPDK net_pcap/virtio PMD] ──rx_burst──▶ ServerSession(seq/ACK/NAK) ──▶ 撮合引擎
+                                                                                        │
+   ◀──UDP── [DPDK tx_burst] ◀── REPORT / ORDER_ACK / NAK_REQUEST ────────────────────────┘
+```
+
+- 私有 9B 帧头（session u32BE | seq u32BE | type u8），双向独立 seq + 显式 ACK/NAK，无 length 前缀（UDP datagram 即消息边界）。
+- 实测（云 VM 2 核 3GB，net_pcap0 文件回放，处理侧延迟 = 订单帧 → REPORT 时间戳间隔）：
+  - 5k / 20k / 50k 单：**100% 交付**（15001 / 60001 / 150001 帧全回），p50 1.0µs / p99 2.0µs 恒定，吞吐 165~252k/s（pcap 文件 IO 瓶颈，非 PMD）。
+  - body 32B→1024B：延迟/吞吐几乎不变（处理侧与 body 无关）。
+  - 故障注入（drop/corrupt 1 帧）：缺帧订单不处理（金融安全）+ **NAK_REQUEST(0x20) 主动请求重传**（同 gap 只发一次防风暴）——已修并验证。
+- 真实环境口径：**p99 2.0µs 是处理侧（引擎内部）承诺**；端到端同机房约 5-12µs（估算，含 NIC DMA + 链路，需真机验证），跨机房加网络 RTT。
+- 无特权部署要点（云 VM 用户级编译）：build.rs 支持 `DPDK_HOME`；bridge.c 需 `-mssse3`；EAL `--no-huge --no-pci -m 512`；libpcap 头取自源码 + 自写 pcap.pc。
+
+> 与形态 B 的关系：形态 D 是**协议层即 UDP**（无 TCP 状态机），DPDK 直通收益最完整；形态 B 的 SoupBinTCP 仍需用户态 TCP 栈搭桥。生产选型：低延迟自营链路可评估形态 D，外部交易所接入仍走形态 A（内核 TCP + SoupBinTCP/iLink）。

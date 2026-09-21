@@ -118,3 +118,17 @@
 - SoupTCP 2.00 官方 PDF（文本行版协议，序列号/快照语义源头）
 - go-finproto（SoupBinTCP 4.1 实现）、node-soupbintcp（3.00 实现）—— 二进制帧格式交叉确认
 - CME iLink 3.0 规范（SBE 编码、会话重传）
+
+## 6. body 大小对比实测（2026-09-21，云 VM 同机同引擎）
+
+| body | DPDK 处理延迟 (p50/p99) | DPDK 吞吐 | TCP 端到端 RTT (p50/p99) | TCP 批量吞吐 |
+|---|---|---|---|---|
+| 32B | 1.0 / 2.0µs | 240k/s | 24 / 52µs | 163k/s |
+| 64B | 1.0 / 2.0µs | 252k/s | — | 193k/s |
+| 256B | 1.0 / 2.0µs | 244k/s | 24 / 43µs | 198k/s |
+| 1024B | 1.0 / 2.0µs | 229k/s | 24 / 42µs | 198k/s |
+
+- **body 大小非瓶颈**：DPDK 处理延迟恒定（p50 1.0µs）、TCP RTT 恒定（p50 24µs）；带宽不构成限制。
+- TCP 小 body 吞吐最低（163k/s @32B）：小包内核处理开销（NAPI/软中断/唤醒）占比高，body 增大略升（198k/s）。
+- 口径提醒：DPDK 列为**处理侧**延迟（订单→REPORT，pcap 回放），TCP 列为**端到端**（本机回环）；两者不可直接相减，真实公平对比为 DPDK 端到端（同机房估 5-12µs）vs TCP 端到端（真机 20-50µs）。
+- 工具：`pcap_order_loopback.py gen` 第 5 参数 body_size；`tcp_order_bench --body N`（body padding 追加第 6 段，parse 忽略）。
