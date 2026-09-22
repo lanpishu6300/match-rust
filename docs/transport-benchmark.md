@@ -466,3 +466,38 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 **结论**：
 1. **崩溃一致性闭环**：committed 前缀精确恢复、尾部按设计丢弃、book 状态可复现——6M/s 持久化链路（journal-first + 批量 MS_SYNC + 崩溃回放）全部闭合。
 2. **边界**：单盘介质故障不防（需 RAID 镜像）；header 与数据在同一文件（生产可拆双文件/跨盘）；回放是顺序重放（恢复时间 ∝ 日志量，生产建议周期性快照 + 增量回放）。
+
+## 8. 关键路径同步 I/O 审计（2026-09-22，代码级逐路径核查）
+
+### 8.1 纯撮合关键路径（SPSC ring → HpEngine::on_order）——**零同步 I/O**
+
+| 环节 | 实现 | 状态 |
+|---|---|---|
+| 事件缓冲 | `events.clear()` 复用，无每次分配 | ✅ |
+| 订单槽 | `OrderStore::with_capacity(order_cap)` 预分配 + free 列表复用 | ✅ |
+| 价位池 | `level_pool` LEVEL_POOL_CAP 预分配 | ✅ |
+| 消费 batch | `worker.batch` 预分配（Disruptor 式） | ✅ |
+| 锁 | 无 Mutex（SPSC 无锁 + 单线程引擎） | ✅ |
+| stdout/文件/网络 | 无（engine.rs/worker.rs 零 println/fs/fsync） | ✅ |
+| journal | **未接入 on_order**（engine.rs 无 journal 引用；journal.rs 独立存在） | ✅ 非关键路径 |
+
+**唯一残留**：`Vec` 扩容峰值——order_cap / LEVEL_POOL_CAP 超限时重分配（摊销 O(1)，非 I/O 但瞬时暂停）。**对策：order_cap 按峰值在途订单预留。**
+
+### 8.2 生产下单链路（网络形态）残留的"非阻塞"项
+
+| 项 | 类型 | 成本 | 是否同步阻塞 |
+|---|---|---|---|
+| DPDK PMD rx_burst/tx_burst | 用户态 DMA 描述符轮询 | ~100ns/批 | 否（非阻塞） |
+| `Instant::now()`（session 层，每包 2 次） | vDSO 时钟 | ~20ns/次 | 否（无 trap） |
+| NAK pending_ts HashMap | 纯内存 | ~50ns | 否 |
+| journal mmap 写（若接入） | page cache 写 | 首次 page fault ~1µs（偶发） | 否（无逐条 fsync，BBU 兜底口径） |
+| stats eprintln!（dpdk_tap_order） | stdout 锁+syscall | 低频（连接/结束） | 否（不在每包路径） |
+
+### 8.3 要避免的"同步 I/O 陷阱"（生产红线）
+
+1. **journal 逐条 fsync** —— 每单 ~1ms，直接杀死 29M/s → 千万分之差。LMAX/Aeron 口径：mmap 批量写 + 不逐条 fsync，落盘靠 BBU。
+2. **每包 println!/stats 输出** —— stdout 锁 + syscall 进关键路径。
+3. **pcap 文件读** —— 仅测试路径（云 VM 回放 250k/s 瓶颈根源），生产无。
+4. **在途订单超 order_cap** —— 触发 Vec 扩容峰值暂停。
+
+**结论**：撮合核心已是零同步 I/O 路径（复刻 LMAX 单线程 + 预分配 + 无锁）；生产链路残留的只有非阻塞轮询（PMD）与 vDSO 时间戳，无真正的阻塞式同步 I/O。
