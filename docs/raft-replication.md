@@ -75,16 +75,19 @@ Multi-Raft 的关键收益：**故障/慢节点只影响该 symbol 的 group**�
 
 ### 4.2 三档 sync 吞吐/延迟（orders=20000×4 group，Mac 本机）
 
-| sync | 档位 | pipeline | TPS | p50 | p99 |
-|---|---|---|---|---|---|
-| 0 | 内存 log | 1（单飞） | 20.9k | 46µs | 94µs |
-| 0 | 内存 log | 64（深流水线） | 待补 | 待补 | 待补 |
-| 1 | Os（page-cache，Aeron 0） | 1（单飞） | 35 | — | — |
-| 1 | Os | 64 | 待补 | 待补 | 待补 |
-| 2 | All（fsync，Aeron 2） | 64 | 待补 | 待补 | 待补 |
+| sync | 档位 | pipeline | TPS | p50 | p99 | 一致性 |
+|---|---|---|---|---|---|---|
+| 0 | 内存 log | 1（单飞） | 20.9k | 46µs | 94µs | PASSED |
+| 0 | 内存 log | 64（深流水线） | 168.8k | 2.24µs | 143µs | PASSED |
+| 1 | Os（page-cache，Aeron 0） | 1（单飞） | 35 | — | — | PASSED |
+| 1 | Os + coalesce100 + mpe4096 | 64 | 1.74k | 557µs | 1155µs | PASSED |
+| 2 | All（fsync，Aeron 2）+ coalesce100 | 64 | 0.66k | 1420µs | 4103µs | PASSED |
 
-> 单飞档 = 每单一次 quorum round-trip（延迟最优）；深流水线档 = `propose_batch` 并发等待（吞吐最优，生产形态）。
-> sync=1 单飞 35 TPS 对应"每单一次 fdatasync + quorum"的真实持久路径；生产用深流水线 + group-commit 摊薄落盘成本。
+> 口径（诚实标注）：
+> - 本机 = Mac（用户机器），3 voter × 4 group（symbol）× 20000 单/group，进程内 Router（无网络 RTT）。
+> - 单飞档 = 每单一次 quorum round-trip（延迟最优）；深流水线档 = `propose_batch`（chunk=64）并发等待（吞吐形态）。
+> - **与 multiraft README 数字的差距**：README "sync=1 深流水线 15–25 万" 为其自带 `--mode bench` 场景口径（单 group / 预生成加载 / 参数栈 api_batch_linger+复制批+disk pipeline 联合调优）；本 demo 4 group × 20k 连续 propose 实测 1.7k TPS（sync=1）。**差距主因未完全定位**——可能是 bench 加载差异、group 数、或 openraft 存储层在该参数栈下未合并 append；建议后续用 multiraft-demo 自带 bench 同参复核。
+> - sync=2 真 fsync × quorum：每 ~1.5ms 一批，吞吐受磁盘 fsync 延迟硬限；README 未给出 sync=2 对标数字。
 
 ## 5. 快照语义与一期边界（诚实标注）
 
