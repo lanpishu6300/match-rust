@@ -1,16 +1,16 @@
 [package]
 name = "match-protocol"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
 
 [dependencies]
 base64 = "0.22"
-bigdecimal = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
+bigdecimal = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
 
 [dev-dependencies]
-bigdecimal = { workspace = true }
-serde_json = { workspace = true }
+bigdecimal = { version = "0.4", features = ["serde"] }
+serde_json = "1"
