@@ -501,3 +501,17 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 4. **在途订单超 order_cap** —— 触发 Vec 扩容峰值暂停。
 
 **结论**：撮合核心已是零同步 I/O 路径（复刻 LMAX 单线程 + 预分配 + 无锁）；生产链路残留的只有非阻塞轮询（PMD）与 vDSO 时间戳，无真正的阻塞式同步 I/O。
+
+### 6.9 本地 Docker DPDK 验证（2026-09-24，Mac Docker Desktop / aarch64）
+
+**镜像**：`mold-dpdk-verify`（完全离线构建：ubuntu:24.04 + DPDK 23.11 net_pcap 运行时 + Rust 1.97.1；资产 `crates/match-dpdk-io/offline-assets/` 405M）。
+
+**修复**：`build.rs` 原硬编码 `-mssse3`（x86 专用 SSE3）导致 Apple Silicon 容器 gcc 编译失败 → 按 `CARGO_CFG_TARGET_ARCH` 条件化（x86_64 才加，aarch64 用 `-O2`）。注：容器 build 时临时从 workspace 移除 `match-raft-fsm`（依赖外部 `/multiraft` 仓库），build 后已恢复。
+
+**结果**：
+| 验证 | 结果 |
+|---|---|
+| MoldUDP64 rx/tx pcap 回放（gen_pcap → rx → tx → rx） | ✅ PASS（seq/gap 校验全过） |
+| dpdk_tap_order 下单链路回放（1001 帧/1000 单） | ✅ rx=1001 proc=1000 tx=2998——**100% 交付** |
+
+**架构口径**：aarch64 容器完成**功能复现**（与云 VM x86 一致：链路正确、100% 交付）；**性能数字不跨架构对比**——云 VM x86 处理侧 p50 1.0µs 锚点仅适用于 x86，ARM 容器数据需单独基准。

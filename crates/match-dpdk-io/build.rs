@@ -92,7 +92,12 @@ fn main() {
                 &arch_inc,
                 "-include",
                 "rte_config.h",
-                "-mssse3",
+                // -mssse3 是 x86 专用 SSE3 指令；aarch64（Apple Silicon / ARM 容器）上无此 flag
+                if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
+                    "-mssse3"
+                } else {
+                    "-O2"
+                },
             ])
             .status()
             .expect("run cc")
