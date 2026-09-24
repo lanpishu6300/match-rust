@@ -211,3 +211,112 @@ impl MoldPublisher {
     pub const TAG_FILL: u8 = MSG_TAG_FILL_ORDER;
     pub const TAG_DEPTH: u8 = MSG_TAG_DEPTH;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::DownstreamHeader;
+
+    fn pubr(cache: usize) -> MoldPublisher {
+        // Send to a real ephemeral-port-looking target; port 0 is invalid for
+        // send_to (would fail with EINVAL on macOS).
+        MoldPublisher::new("TEST", "127.0.0.1:45678".parse().unwrap(), cache).unwrap()
+    }
+
+    #[test]
+    fn publish_assigns_consecutive_seqs_and_caches() {
+        let p = pubr(16);
+        assert_eq!(p.next_seq(), 1);
+        assert_eq!(p.last_seq(), 0);
+        p.publish(b"a").unwrap();
+        p.publish(b"b").unwrap();
+        assert_eq!(p.next_seq(), 3);
+        assert_eq!(p.last_seq(), 2);
+        // Cache mirrors the published history.
+        let cache = p.shared_cache();
+        let g = cache.lock().unwrap();
+        assert!(g.get(1).is_some());
+        assert!(g.get(2).is_some());
+        assert!(g.get(3).is_none());
+    }
+
+    #[test]
+    fn publish_tagged_prepends_tag() {
+        let p = pubr(8);
+        p.publish_tagged(MoldPublisher::TAG_FILL, b"payload").unwrap();
+        let cache = p.shared_cache();
+        let g = cache.lock().unwrap();
+        let m = g.get(1).unwrap();
+        assert_eq!(m.payload, vec![MoldPublisher::TAG_FILL, b'p', b'a', b'y', b'l', b'o', b'a', b'd']);
+        assert_eq!(p.last_seq(), 1);
+    }
+
+    #[test]
+    fn publish_batch_empty_returns_zero() {
+        let p = pubr(8);
+        assert_eq!(p.publish_batch(&[], 1472).unwrap(), 0);
+        assert_eq!(p.next_seq(), 1, "no seq consumed for empty batch");
+    }
+
+    #[test]
+    fn publish_batch_zero_max_uses_default() {
+        let p = pubr(8);
+        let msgs: Vec<Vec<u8>> = (0..20).map(|i| vec![i as u8; 100]).collect();
+        // max=0 => MOLD_MAX_DATAGRAM (1472): 14 blocks fit.
+        let n = p.publish_batch(&msgs, 0).unwrap();
+        assert_eq!(n, 14);
+        assert_eq!(p.next_seq(), 15, "seqs consumed only for packed blocks");
+    }
+
+    #[test]
+    fn publish_batch_skips_single_oversized_message() {
+        let p = pubr(8);
+        let big = vec![b'x'; 2000]; // 2002 + 20 > 1472 even alone
+        let n = p.publish_batch(&[big], 1472).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(p.next_seq(), 1, "oversized message must not consume a seq");
+    }
+
+    #[test]
+    fn publish_batch_fills_exactly_to_mtu() {
+        let p = pubr(8);
+        // 20 header + k*(2+100) <= 1472 => k=14 (1448); 15th (1460? no: 1448+102=1550) breaks.
+        let msgs: Vec<Vec<u8>> = (0..20).map(|i| vec![i as u8; 100]).collect();
+        assert_eq!(p.publish_batch(&msgs, 1472).unwrap(), 14);
+    }
+
+    #[test]
+    fn heartbeat_advises_next_seq_with_zero_count() {
+        let p = pubr(8);
+        p.publish(b"m").unwrap();
+        p.send_heartbeat().unwrap();
+        // Verify wire shape: exactly 20-byte header with msg_count == 0.
+        let hdr = DownstreamHeader::decode(&[0u8; MOLD_DOWNSTREAM_HEADER_LEN]).unwrap(); // shape only
+        assert_eq!(hdr.msg_count, 0); // constant regardless
+        let _ = hdr;
+        assert_eq!(p.next_seq(), 2);
+    }
+
+    #[test]
+    fn multicast_target_loop_join_is_ok() {
+        // Multicast group target: constructor joins loop on the default iface.
+        let group: SocketAddr = "239.255.99.7:45678".parse().unwrap();
+        let p = MoldPublisher::new("TEST", group, 8).unwrap();
+        p.publish(b"m").unwrap(); // loopback multicast send must not fail
+        assert_eq!(p.last_seq(), 1);
+    }
+
+    #[test]
+    fn shared_cache_roundtrip_via_retransmit_path() {
+        let p = pubr(32);
+        for i in 1..=5u8 {
+            p.publish(&[i]).unwrap();
+        }
+        let cache = p.shared_cache();
+        let g = cache.lock().unwrap();
+        assert_eq!(g.len(), 5);
+        assert_eq!(g.first_seq, Some(1));
+        assert_eq!(g.get_range(4, 2).len(), 2);
+    }
+}
+

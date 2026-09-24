@@ -49,7 +49,10 @@ impl Packet {
 
     /// Serialize to the wire form `[Length 2BE][Type][Payload]`.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let len = 1u16 + self.payload.len() as u16;
+        // Saturate instead of overflowing: a payload > 65_534 B cannot be
+        // expressed in the u16 length field, so clamp to the maximum
+        // representable value rather than panicking in debug or wrapping.
+        let len = 1u16.saturating_add(self.payload.len() as u16);
         let mut out = Vec::with_capacity(2 + 1 + self.payload.len());
         out.extend_from_slice(&len.to_be_bytes());
         out.push(self.packet_type);
@@ -245,9 +248,9 @@ mod tests {
         assert_eq!(pkts.len(), 2);
 
         // Split: one packet across two buffers.
-        let (mut first, mut second) = (a.clone(), a);
+        let mut first = a.clone();
         let split = first.len() / 2;
-        second = first.split_off(split);
+        let second = first.split_off(split);
         let (pkts1, c1, need1) = parse_stream(&first);
         assert!(need1);
         assert!(pkts1.is_empty());
@@ -262,5 +265,124 @@ mod tests {
     fn heartbeat_sizes() {
         assert_eq!(heartbeat(CLIENT_HEARTBEAT).to_bytes().len(), 3); // 2+1
         assert_eq!(heartbeat(SERVER_HEARTBEAT).to_bytes().len(), 3);
+    }
+
+    #[test]
+    fn parse_stream_zero_length_is_malformed_and_stops() {
+        // A zero length prefix is malformed: parsing stops, nothing consumed,
+        // but the remaining bytes still report needs_more (unconsumed tail).
+        let buf = [0u8, 0u8, b'S'];
+        let (pkts, consumed, needs_more) = parse_stream(&buf);
+        assert!(pkts.is_empty());
+        assert_eq!(consumed, 0);
+        assert!(needs_more);
+    }
+
+    #[test]
+    fn parse_stream_length_exceeding_buffer_stops_partial() {
+        // Declared length 100 but only 5 bytes follow => tail is partial.
+        let mut buf = vec![0u8, 100, b'S'];
+        buf.extend_from_slice(b"abc");
+        let (pkts, consumed, needs_more) = parse_stream(&buf);
+        assert!(pkts.is_empty());
+        assert_eq!(consumed, 0);
+        assert!(needs_more);
+    }
+
+    #[test]
+    fn parse_stream_multiple_packets_and_exact_boundary() {
+        let a = login_accepted("S", 1).to_bytes(); // 2+1+30 = 33
+        let h = heartbeat(SERVER_HEARTBEAT).to_bytes(); // 3
+        let mut combined = a.clone();
+        combined.extend_from_slice(&h);
+        combined.extend_from_slice(&a); // exact boundary at the end
+        let (pkts, consumed, needs_more) = parse_stream(&combined);
+        assert_eq!(pkts.len(), 3);
+        assert_eq!(consumed, combined.len());
+        assert!(!needs_more);
+    }
+
+    #[test]
+    fn packet_type_predicates() {
+        assert!(login_request("u", "p", "S", 1).is_login_request());
+        assert!(!login_accepted("S", 1).is_login_request());
+        assert!(heartbeat(CLIENT_HEARTBEAT).is_heartbeat());
+        assert!(heartbeat(SERVER_HEARTBEAT).is_heartbeat());
+        assert!(!end_of_session().is_heartbeat());
+        assert_eq!(logout_request().packet_type, LOGOUT_REQUEST);
+        assert_eq!(end_of_session().packet_type, END_OF_SESSION);
+        assert_eq!(login_rejected(REJECT_NOT_AUTHORIZED).parse_login_rejected(), REJECT_NOT_AUTHORIZED);
+    }
+
+    #[test]
+    fn login_request_field_truncation_and_padding() {
+        // Over-long username/password truncated; short session padded right.
+        let p = login_request("abcdefghijklmn", "0123456789XX", "AB", 123456);
+        let wire = p.to_bytes();
+        let (pkts, _, _) = parse_stream(&wire);
+        let lr = pkts[0].parse_login_request();
+        assert_eq!(lr.username, "abcdef"); // 6-char truncation
+        assert_eq!(lr.password, "0123456789"); // 10-char truncation
+        assert_eq!(lr.requested_session, "AB"); // right-padded, trimmed
+        assert_eq!(lr.requested_sequence, 123456);
+    }
+
+    #[test]
+    fn login_request_sequence_edge_values() {
+        let p = login_request("u", "p", "S", u64::MAX);
+        let (pkts, _, _) = parse_stream(&p.to_bytes());
+        assert_eq!(pkts[0].parse_login_request().requested_sequence, u64::MAX);
+
+        // Non-numeric sequence text parses as 0 (lenient).
+        let mut payload = vec![b' '; 46];
+        payload.push(b'X'); // last byte non-digit
+        let p = Packet::new(LOGIN_REQUEST, payload);
+        assert_eq!(p.parse_login_request().requested_sequence, 0);
+    }
+
+    #[test]
+    fn short_login_payloads_parse_leniently() {
+        // Empty payload: all fields empty, seq 0.
+        let p = Packet::new(LOGIN_REQUEST, vec![]);
+        let lr = p.parse_login_request();
+        assert_eq!(lr.username, "");
+        assert_eq!(lr.requested_session, "");
+        assert_eq!(lr.requested_sequence, 0);
+
+        // Partial accepted payload: session field needs all 10 bytes, so a
+        // 2-byte payload yields an empty session (lenient, no panic).
+        let p = Packet::new(LOGIN_ACCEPTED, b"AB".to_vec());
+        let acc = p.parse_login_accepted();
+        assert_eq!(acc.session, "");
+        assert_eq!(acc.sequence, 0);
+
+        // Empty rejected payload => reason 0.
+        let p = Packet::new(LOGIN_REJECTED, vec![]);
+        assert_eq!(p.parse_login_rejected(), 0);
+    }
+
+    #[test]
+    fn to_bytes_handles_oversized_payload_with_saturation() {
+        // 65_535-byte payload: the u16 length field saturates at 65535
+        // instead of panicking or wrapping. The header stays 0xFF 0xFF and
+        // the wire stream remains parseable; only the excess payload byte is
+        // not addressable by the length field and stays unconsumed.
+        let big = vec![b'x'; 65_535];
+        let p = Packet::new(SEQUENCED_DATA, big);
+        let wire = p.to_bytes();
+        assert_eq!(wire.len(), 2 + 1 + 65_535);
+        // Length header saturates at 0xFF 0xFF (max representable).
+        assert_eq!(&wire[0..2], &[0xFF, 0xFF]);
+        let (pkts, consumed, needs_more) = parse_stream(&wire);
+        assert_eq!(pkts.len(), 1);
+        assert_eq!(pkts[0].payload.len(), 65_534, "payload beyond the u16 window is truncated");
+        assert_eq!(consumed, 2 + 65_535);
+        assert!(needs_more, "one trailing byte remains unconsumed");
+    }
+
+    #[test]
+    fn packet_debug_format() {
+        assert_eq!(format!("{:?}", heartbeat(CLIENT_HEARTBEAT)), "Packet(R len=0)");
+        assert_eq!(format!("{:?}", Packet::new(b'S', vec![1, 2])), "Packet(S len=2)");
     }
 }

@@ -16,6 +16,24 @@ members = [
   "crates/match-udp-order",
 ]
 
+# match-dpdk-io 的 bin 全部是 Linux-only（DPDK FFI），macOS 上聚合编译会失败。
+# 默认聚合命令（cargo test / llvm-cov / cargo build）只编译这些成员；
+# 云 VM 上仍可用 `-p match-dpdk-io` 显式编译 DPDK 目标。
+default-members = [
+  "crates/match-protocol",
+  "crates/match-core",
+  "crates/match-core-hp",
+  "crates/match-raft-fsm",
+  "crates/match-bench",
+  "crates/match-replay",
+  "crates/match-contract",
+  "crates/match-spot",
+  "crates/match-wal",
+  "crates/match-moldudp64",
+  "crates/match-soupbintcp",
+  "crates/match-udp-order",
+]
+
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"

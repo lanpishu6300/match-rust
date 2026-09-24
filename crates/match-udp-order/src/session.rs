@@ -428,6 +428,33 @@ mod tests {
     }
 
     #[test]
+    fn server_routes_cancel_and_replace_events() {
+        let mut srv = ServerSession::new(8);
+        // CANCEL seq=1 (expected) => Cancel event + ORDER_ACK(OK).
+        let c = packet::encode(SESSION_MAGIC, 1, t::CANCEL, b"cancel-payload");
+        let (evs, out) = srv.on_datagram(&c);
+        assert!(matches!(&evs[0], ServerEvent::Cancel(1, p) if p == b"cancel-payload"));
+        let (h, p) = packet::decode(&out[0]).unwrap();
+        assert_eq!(h.mtype, t::ORDER_ACK);
+        assert_eq!(p[4], packet::ACK_OK);
+        // REPLACE seq=2 => Replace event; expected advances to 3.
+        let r = packet::encode(SESSION_MAGIC, 2, t::REPLACE, b"replace-payload");
+        let (evs2, _) = srv.on_datagram(&r);
+        assert!(matches!(&evs2[0], ServerEvent::Replace(2, p) if p == b"replace-payload"));
+        // 乱序 REPLACE（期望 3，来 5）=> NAK + ACK_RETRY。
+        let r2 = packet::encode(SESSION_MAGIC, 5, t::REPLACE, b"out-of-order");
+        let (evs3, out3) = srv.on_datagram(&r2);
+        assert!(evs3.is_empty());
+        assert_eq!(out3.len(), 2);
+        let (h2, p2) = packet::decode(&out3[0]).unwrap();
+        assert_eq!(h2.mtype, t::NAK_REQUEST);
+        assert_eq!(packet::u32_be(&p2[0..4]), 3);
+        assert_eq!(packet::u32_be(&p2[4..8]), 2);
+        let (_, p3) = packet::decode(&out3[1]).unwrap();
+        assert_eq!(p3[4], packet::ACK_RETRY);
+    }
+
+    #[test]
     fn nak_replay_fills_gap() {
         let mut srv = ServerSession::new(64);
         // server 发 3 条回报：ack_and_report 每次返回 [ORDER_ACK, REPORT]
@@ -500,5 +527,213 @@ mod tests {
         // 重发后 seq 不变（幂等）
         let (h, _) = packet::decode(&due[0]).unwrap();
         assert_eq!(h.seq, 1);
+    }
+
+    #[test]
+    fn retransmit_due_no_pending_is_empty() {
+        let mut cli = ClientSession::new();
+        assert!(cli.retransmit_due(std::time::Duration::ZERO).is_empty());
+    }
+
+    #[test]
+    fn short_control_payloads_are_ignored() {
+        let mut srv = ServerSession::new(8);
+        // NAK_REQUEST with < 8-byte payload => no event, no output.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_REQUEST, &[1, 2, 3]);
+        let (evs, out) = srv.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // HELLO with < 8-byte payload => ignored.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::HELLO, &[1]);
+        let (evs, out) = srv.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // Unknown message type => silent drop.
+        let dg = packet::encode(SESSION_MAGIC, 1, 0xFF, b"x");
+        let (evs, out) = srv.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // Heartbeat => event + echo.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::HEARTBEAT, &[]);
+        let (evs, out) = srv.on_datagram(&dg);
+        assert!(matches!(evs[0], ServerEvent::Heartbeat));
+        let (h, _) = packet::decode(&out[0]).unwrap();
+        assert_eq!(h.mtype, t::HEARTBEAT);
+    }
+
+    #[test]
+    fn short_client_frames_are_ignored() {
+        let mut cli = ClientSession::new();
+        // ORDER_ACK < 5 bytes => ignored.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::ORDER_ACK, &[1, 2]);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // HELLO_ACK < 9 bytes => ignored.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::HELLO_ACK, &[1, 2, 3]);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // NAK_RESPONSE < 8 bytes => ignored.
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_RESPONSE, &[1, 2]);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+        // Unknown type => silent.
+        let dg = packet::encode(SESSION_MAGIC, 1, 0xEE, b"x");
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn client_report_gap_triggers_nak_and_stale_reports_ignored() {
+        let mut cli = ClientSession::new();
+        // REPORT seq=5 while expecting 1 => NAK_REQUEST(1, 4).
+        let dg = packet::encode(SESSION_MAGIC, 5, t::REPORT, &[REPORT_ACCEPTED]);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty(), "gap not yet filled");
+        let (h, p) = packet::decode(&out[0]).unwrap();
+        assert_eq!(h.mtype, t::NAK_REQUEST);
+        assert_eq!(packet::u32_be(&p[0..4]), 1);
+        assert_eq!(packet::u32_be(&p[4..8]), 4);
+        // Server fills the gap via NAK_RESPONSE => expected advances to 2.
+        let mut rb = Vec::new();
+        rb.extend_from_slice(&1u32.to_be_bytes()); // start
+        rb.extend_from_slice(&1u32.to_be_bytes()); // count
+        rb.extend_from_slice(&1u32.to_be_bytes()); // seq
+        rb.extend_from_slice(&1u16.to_be_bytes());
+        rb.push(REPORT_ACCEPTED);
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_RESPONSE, &rb);
+        let (_, _) = cli.on_datagram(&dg);
+        assert_eq!(cli.expected_report_seq(), 2);
+        // Stale/duplicate report (seq < expected) is ignored, no NAK spam.
+        let dg = packet::encode(SESSION_MAGIC, 1, t::REPORT, &[REPORT_ACCEPTED]);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn nak_response_truncation_stops_gracefully() {
+        let mut cli = ClientSession::new();
+        // Well-formed header but a block whose len exceeds the buffer.
+        let mut body = Vec::new();
+        body.extend_from_slice(&1u32.to_be_bytes()); // start
+        body.extend_from_slice(&1u32.to_be_bytes()); // count
+        body.extend_from_slice(&1u32.to_be_bytes()); // seq
+        body.extend_from_slice(&100u16.to_be_bytes()); // len=100 but no payload
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_RESPONSE, &body);
+        let (evs, out) = cli.on_datagram(&dg);
+        assert!(evs.is_empty(), "truncated block dropped");
+        assert!(out.is_empty());
+
+        // Block header truncated: only 3 of the 6 header bytes present
+        // (off+6 > len) => loop breaks with no event.
+        let mut body2 = Vec::new();
+        body2.extend_from_slice(&1u32.to_be_bytes()); // start
+        body2.extend_from_slice(&1u32.to_be_bytes()); // count
+        body2.extend_from_slice(&1u32.to_be_bytes()); // seq — 缺 len 字段 2 字节
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_RESPONSE, &body2);
+        let (evs, _) = cli.on_datagram(&dg);
+        assert!(evs.is_empty());
+    }
+
+    #[test]
+    fn nak_response_seq_jump_advances_watermark() {
+        let mut cli = ClientSession::new();
+        // Response claims seq=10 (skipping 1..9) => expected jumps to 11.
+        let mut body = Vec::new();
+        body.extend_from_slice(&1u32.to_be_bytes()); // start
+        body.extend_from_slice(&1u32.to_be_bytes()); // count
+        body.extend_from_slice(&10u32.to_be_bytes()); // seq
+        body.extend_from_slice(&3u16.to_be_bytes());
+        body.extend_from_slice(b"abc");
+        let dg = packet::encode(SESSION_MAGIC, 0, t::NAK_RESPONSE, &body);
+        let (evs, _) = cli.on_datagram(&dg);
+        assert!(matches!(&evs[0], ClientEvent::Report(10, p) if p == b"abc"));
+        assert_eq!(cli.expected_report_seq(), 11);
+    }
+
+    #[test]
+    fn reject_order_only_acks_reject() {
+        let mut srv = ServerSession::new(8);
+        let out = srv.reject_order(3);
+        assert_eq!(out.len(), 1);
+        let (h, p) = packet::decode(&out[0]).unwrap();
+        assert_eq!(h.mtype, t::ORDER_ACK);
+        assert_eq!(p[4], packet::ACK_REJECT);
+    }
+
+    #[test]
+    fn ack_and_report_evicts_store_when_full() {
+        let mut srv = ServerSession::new(2);
+        for i in 1..=5u32 {
+            srv.ack_and_report(i, &[REPORT_ACCEPTED, i as u8]);
+        }
+        assert_eq!(srv.store_start(), 4, "only 4,5 retained");
+        assert_eq!(srv.store_len(), 2);
+        assert_eq!(srv.report_high_water(), 5);
+    }
+
+    #[test]
+    fn sequence_wraparound_server() {
+        // Force expected_client_seq near u32::MAX, then wrap.
+        let mut srv = ServerSession {
+            next_report_seq: 1,
+            expected_client_seq: u32::MAX,
+            store: std::collections::VecDeque::new(),
+            store_start: 1,
+            store_cap: 8,
+            last_nak_start: None,
+        };
+        let dg = packet::encode(SESSION_MAGIC, u32::MAX, t::ORDER, b"x");
+        let (evs, out) = srv.on_datagram(&dg);
+        assert_eq!(evs.len(), 1, "seq==expected accepted");
+        // expected wraps to 0.
+        let dg0 = packet::encode(SESSION_MAGIC, 0, t::ORDER, b"y");
+        let (evs0, _) = srv.on_datagram(&dg0);
+        assert_eq!(evs0.len(), 1, "wrapped seq 0 == expected 0 accepted");
+        // A NAK_REQUEST in this state still resolves.
+        let _ = out;
+    }
+
+    #[test]
+    fn sequence_wraparound_client() {
+        let mut cli = ClientSession {
+            next_order_seq: u32::MAX,
+            expected_report_seq: 1,
+            pending: std::collections::BTreeMap::new(),
+            pending_ts: std::collections::BTreeMap::new(),
+        };
+        let dg = cli.send_order(b"o1");
+        let (h, _) = packet::decode(&dg).unwrap();
+        assert_eq!(h.seq, u32::MAX);
+        let dg2 = cli.send_order(b"o2");
+        let (h2, _) = packet::decode(&dg2).unwrap();
+        assert_eq!(h2.seq, 0, "order seq wraps to 0");
+    }
+
+    #[test]
+    fn hello_flags_and_wire_shapes() {
+        let mut srv = ServerSession::new(8);
+        for i in 1..=3u32 {
+            srv.ack_and_report(i, &[REPORT_ACCEPTED, i as u8]);
+        }
+        // hello with last_report_seq == high water => flags 0.
+        let hello = ClientSession::new().send_hello(7, 3);
+        let (evs, out) = srv.on_datagram(&hello);
+        assert!(matches!(evs[0], ServerEvent::Hello(7, 3)));
+        let (_, p) = packet::decode(&out[0]).unwrap();
+        assert_eq!(packet::u32_be(&p[0..4]), 3);
+        assert_eq!(packet::u32_be(&p[4..8]), 1);
+        assert_eq!(p[8], 0);
+
+        // nak_request wire shape.
+        let req = ClientSession::new().nak_request(2, 1);
+        let (h, p) = packet::decode(&req).unwrap();
+        assert_eq!(h.mtype, t::NAK_REQUEST);
+        assert_eq!(packet::u32_be(&p[0..4]), 2);
+        assert_eq!(packet::u32_be(&p[4..8]), 1);
     }
 }

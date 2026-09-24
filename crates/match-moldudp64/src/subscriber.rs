@@ -165,9 +165,15 @@ impl MoldSubscriber {
         }
 
         // Only a fully-parsed packet advances the contiguous watermark; a
-        // truncated datagram is treated as invalid for state tracking.
+        // truncated datagram is treated as invalid for state tracking. The
+        // watermark never moves backwards: a replayed/out-of-order packet
+        // (first_seq < last) must not lower the highest contiguous sequence.
         if !truncated && !messages.is_empty() {
-            self.last_seq = Some(first_seq + messages.len() as u64 - 1);
+            let end = first_seq + messages.len() as u64 - 1;
+            self.last_seq = Some(match self.last_seq {
+                Some(last) => last.max(end),
+                None => end,
+            });
         }
         ParseOutcome {
             first_seq,
@@ -301,5 +307,150 @@ mod tests {
         let out = sub.parse_packet(&pkt);
         assert_eq!(out.messages.len(), 0);
         assert_eq!(sub.last_seq(), None, "malformed packet must not advance state");
+    }
+
+    #[test]
+    fn truncated_at_length_field_only() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        // Header + a 2-byte length prefix declaring 5 bytes but no payload.
+        let mut pkt = data_packet(&SID, 1, &[b"hello"]);
+        pkt.truncate(MOLD_DOWNSTREAM_HEADER_LEN + 2);
+        let out = sub.parse_packet(&pkt);
+        assert_eq!(out.messages.len(), 0);
+        assert_eq!(out.msg_count, 1);
+        assert_eq!(sub.last_seq(), None);
+
+        // Header with no block header at all.
+        let bare = data_packet(&SID, 1, &[b"x"])[..MOLD_DOWNSTREAM_HEADER_LEN].to_vec();
+        let out = sub.parse_packet(&bare);
+        assert_eq!(out.messages.len(), 0);
+        assert_eq!(sub.last_seq(), None);
+    }
+
+    #[test]
+    fn partial_block_keeps_earlier_messages() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        // Three messages; truncate inside the 3rd payload.
+        let mut pkt = data_packet(&SID, 1, &[b"aaa", b"bbb", b"cccccc"]);
+        pkt.truncate(MOLD_DOWNSTREAM_HEADER_LEN + 2 + 3 + 2 + 3 + 2 + 3);
+        let out = sub.parse_packet(&pkt);
+        assert_eq!(out.messages.len(), 2, "first two blocks kept");
+        assert_eq!(out.messages[0].0, 1);
+        assert_eq!(out.messages[1].0, 2);
+        assert_eq!(sub.last_seq(), None, "truncated packet must not advance watermark");
+    }
+
+    #[test]
+    fn first_packet_without_baseline_reports_no_gap() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        // With no baseline, expected == first_seq: the very first packet can
+        // never be "lost" (nothing to compare against), it just establishes
+        // the watermark.
+        let out = sub.parse_packet(&data_packet(&SID, 5, &[b"e"]));
+        assert!(out.gap.is_none());
+        assert_eq!(out.messages[0].0, 5);
+        assert_eq!(sub.last_seq(), Some(5));
+    }
+
+    #[test]
+    fn out_of_order_replay_does_not_rewind_or_gap() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        sub.parse_packet(&data_packet(&SID, 1, &[b"a", b"b", b"c"]));
+        // Replay of an old packet (seq 2) must not report a gap or move the watermark.
+        let out = sub.parse_packet(&data_packet(&SID, 2, &[b"b"]));
+        assert!(out.gap.is_none());
+        assert_eq!(out.messages[0].0, 2);
+        assert_eq!(sub.last_seq(), Some(3), "watermark unchanged");
+        // Duplicate of the whole range likewise.
+        let out = sub.parse_packet(&data_packet(&SID, 1, &[b"a", b"b", b"c"]));
+        assert!(out.gap.is_none());
+        assert_eq!(sub.last_seq(), Some(3));
+    }
+
+    #[test]
+    fn heartbeat_first_seq_gt_one_sets_floor() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        // First-ever packet is a heartbeat advertising seq 10 => floor = 9.
+        let out = sub.parse_packet(&data_packet(&SID, 10, &[]));
+        assert!(out.is_heartbeat);
+        assert_eq!(sub.last_seq(), Some(9));
+
+        // Heartbeat advertising seq 1 (no data yet) => floor stays unknown.
+        let mut sub2 = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        let out = sub2.parse_packet(&data_packet(&SID, 1, &[]));
+        assert!(out.is_heartbeat);
+        assert_eq!(sub2.last_seq(), None);
+
+        // Heartbeat below the current watermark => floor does not go backwards.
+        let out = sub.parse_packet(&data_packet(&SID, 5, &[]));
+        assert!(out.is_heartbeat);
+        assert_eq!(sub.last_seq(), Some(9));
+    }
+
+    #[test]
+    fn minimal_gap_and_many_messages() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        sub.parse_packet(&data_packet(&SID, 1, &[b"a"]));
+        // Smallest possible gap: expected 2, packet starts at 3.
+        let out = sub.parse_packet(&data_packet(&SID, 3, &[b"c"]));
+        assert_eq!(out.gap.unwrap().lost, 1);
+        assert_eq!(sub.last_seq(), Some(3));
+
+        // Many (255) empty blocks parse without loss.
+        let mut many = Vec::new();
+        let hdr = DownstreamHeader { session_id: SID, seq: 4, msg_count: 255 };
+        let mut h = [0u8; MOLD_DOWNSTREAM_HEADER_LEN];
+        hdr.encode(&mut h);
+        many.extend_from_slice(&h);
+        for _ in 0..255 {
+            many.extend_from_slice(&[0, 0]); // empty block
+        }
+        let out = sub.parse_packet(&many);
+        assert_eq!(out.messages.len(), 255);
+        assert_eq!(out.messages[0].0, 4);
+        assert_eq!(out.messages[254].0, 258);
+        assert_eq!(sub.last_seq(), Some(258));
+    }
+
+    #[test]
+    fn send_nak_without_server_is_error_and_auto_nak_clamps() {
+        let sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        assert!(sub.send_nak(1, 3).is_err(), "no retransmit server configured");
+        assert!(sub.auto_nak(&ParseOutcome::heartbeat(1), 10).unwrap().is_none());
+
+        // auto_nak with a gap on a configured subscriber emits exactly max_request.
+        let mut sub2 = MoldSubscriber::new_unicast(
+            "MATCH_RUST",
+            "127.0.0.1:0".parse().unwrap(),
+            Some("127.0.0.1:9".parse().unwrap()),
+        )
+        .unwrap();
+        sub2.parse_packet(&data_packet(&SID, 1, &[b"a"])); // baseline, last=1
+        let out = sub2.parse_packet(&data_packet(&SID, 20, &[b"t"]));
+        let gap = sub2.auto_nak(&out, 5).unwrap().unwrap();
+        assert_eq!(gap.lost, 18, "expected=2, first=20 => lost=18");
+    }
+
+    #[test]
+    fn multicast_predicate() {
+        assert!(MoldSubscriber::is_multicast("239.0.0.1:1".parse().unwrap()));
+        assert!(!MoldSubscriber::is_multicast("127.0.0.1:1".parse().unwrap()));
+    }
+
+    #[test]
+    fn recv_returns_none_on_would_block() {
+        let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
+            .unwrap();
+        let mut buf = [0u8; 64];
+        let r = sub.recv(&mut buf).unwrap();
+        assert!(r.is_none(), "empty non-blocking socket yields None");
     }
 }

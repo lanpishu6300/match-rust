@@ -77,8 +77,12 @@ impl MessageRingBuf {
 
     /// Fetch a consecutive range `[start, start+count)`; stops at the first
     /// missing sequence so callers never receive a sparse reply. Returns the
-    /// messages that are actually available.
+    /// messages that are actually available. An empty ring yields `[]` (never
+    /// panics — a NAK hitting an empty cache simply has nothing to replay).
     pub fn get_range(&self, start: u64, count: u64) -> Vec<CachedMessage> {
+        if self.base_seq.is_none() {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         for seq in start..start.saturating_add(count) {
             match self.get(seq) {
@@ -156,5 +160,59 @@ mod tests {
         ring.push(11, vec![]);
         ring.push(12, vec![]); // evicts 10
         assert_eq!(ring.eviction_floor(), Some(11));
+    }
+
+    #[test]
+    fn capacity_one_keeps_only_latest() {
+        let mut ring = MessageRingBuf::new(1);
+        ring.push(1, vec![1]);
+        assert!(ring.contains(1));
+        ring.push(2, vec![2]);
+        assert!(!ring.contains(1));
+        assert!(ring.contains(2));
+        assert_eq!(ring.len(), 1);
+        assert_eq!(ring.eviction_floor(), Some(2));
+        assert_eq!(ring.get_range(1, 5).len(), 0);
+        assert_eq!(ring.get_range(2, 5).len(), 1);
+    }
+
+    #[test]
+    fn push_with_gap_is_found_by_seq_mapping() {
+        let mut ring = MessageRingBuf::new(4);
+        ring.push(10, vec![10]);
+        ring.push(12, vec![12]); // gap at 11
+        // index_of(12) = (12-10)%4 = 2, and push wrote it sequentially at slot
+        // 1 — so lookups stop at the first missing seq; only 10 is reachable.
+        assert!(ring.contains(10));
+        assert!(!ring.contains(11));
+        assert!(!ring.contains(12), "out-of-order push is a caller bug, not stored");
+        assert_eq!(ring.get_range(10, 5).len(), 1);
+    }
+
+    #[test]
+    fn seq_wraparound_mapping_is_stable() {
+        let mut ring = MessageRingBuf::new(4);
+        // Large seq base far from zero: (seq - base) % cap must map correctly.
+        let base = u64::MAX - 12;
+        for i in 0..12u64 {
+            ring.push(base + i, vec![i as u8]);
+        }
+        assert!(ring.contains(base + 9));
+        assert!(ring.contains(base + 11));
+        assert!(!ring.contains(base - 1));
+        assert_eq!(ring.len(), 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "index_of on empty ring")]
+    fn get_on_empty_ring_panics() {
+        let ring = MessageRingBuf::new(4);
+        ring.get(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "ring capacity must be > 0")]
+    fn zero_capacity_rejected() {
+        MessageRingBuf::new(0);
     }
 }

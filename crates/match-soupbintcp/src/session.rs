@@ -16,7 +16,8 @@
 //! ```
 
 use crate::packet::{
-    self, LoginAccepted, LoginRequest, Packet, REJECT_SESSION_UNAVAILABLE, SESSION_LEN,
+    self, LoginAccepted, LoginRequest, Packet, REJECT_NOT_AUTHORIZED, REJECT_SESSION_UNAVAILABLE,
+    SESSION_LEN,
 };
 
 #[derive(Debug)]
@@ -255,5 +256,282 @@ impl ClientSession {
             other => return Err(SessionError::UnexpectedPacket(char::from(other))),
         }
         Ok(a)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packet;
+
+    fn lr(session: &str, seq: u64) -> LoginRequest {
+        LoginRequest {
+            username: "u1".into(),
+            password: "p1".into(),
+            requested_session: session.into(),
+            requested_sequence: seq,
+        }
+    }
+
+    // ---- ServerSession ----
+
+    #[test]
+    fn session_id_length_boundaries() {
+        assert!(matches!(
+            ServerSession::new("12345678901", 8),
+            Err(SessionError::SessionTooLong)
+        ));
+        // Exactly SESSION_LEN (10) is allowed.
+        let s = ServerSession::new("1234567890", 8).unwrap();
+        assert_eq!(s.session_id(), "1234567890");
+        // Empty session id is allowed (matches "any" acceptance).
+        assert!(ServerSession::new("", 8).is_ok());
+    }
+
+    #[test]
+    fn enqueue_assigns_sequential_seqs_and_evicts_oldest() {
+        let mut s = ServerSession::new("S", 3).unwrap();
+        assert_eq!(s.next_seq(), 1);
+        assert_eq!(s.enqueue(b"m1"), 1);
+        assert_eq!(s.enqueue(b"m2"), 2);
+        assert_eq!(s.enqueue(b"m3"), 3);
+        assert_eq!(s.next_seq(), 4);
+        // 4th enqueue evicts seq=1 (oldest).
+        assert_eq!(s.enqueue(b"m4"), 4);
+        assert_eq!(s.next_seq(), 5);
+        // store_capacity = 3 => only 2,3,4 retained.
+        let mut s2 = ServerSession::new("S", 3).unwrap();
+        for i in 1..=6u64 {
+            s2.enqueue(&[i as u8]);
+        }
+        assert_eq!(s2.next_seq(), 7);
+    }
+
+    #[test]
+    fn login_rejects_foreign_session() {
+        let mut s = ServerSession::new("SESS_A", 8).unwrap();
+        let a = s.handle_login(&lr("SESS_B", 0)).unwrap();
+        assert!(a.close);
+        assert_eq!(a.outbound.len(), 1);
+        let p = &a.outbound[0];
+        assert_eq!(p.packet_type, packet::LOGIN_REJECTED);
+        assert_eq!(p.parse_login_rejected(), REJECT_SESSION_UNAVAILABLE);
+    }
+
+    #[test]
+    fn login_accepts_matching_or_empty_session() {
+        let mut s = ServerSession::new("SESS_A", 8).unwrap();
+        let a = s.handle_login(&lr("SESS_A", 0)).unwrap();
+        assert!(!a.close);
+        assert_eq!(a.outbound.len(), 1);
+        let acc = a.outbound[0].parse_login_accepted();
+        assert_eq!(acc.session, "SESS_A");
+        assert_eq!(acc.sequence, 1); // requested 0 => current high-water
+
+        // Empty requested session is treated as "any".
+        let mut s2 = ServerSession::new("SESS_A", 8).unwrap();
+        let a2 = s2.handle_login(&lr("", 0)).unwrap();
+        assert!(!a2.close);
+        assert_eq!(a2.outbound.len(), 1);
+    }
+
+    #[test]
+    fn login_sequence_clamping_and_snapshot_replay() {
+        // Seed the store with seq 1..=4.
+        let mut s = ServerSession::new("S", 64).unwrap();
+        for i in 1..=4u64 {
+            s.enqueue(&[i as u8]);
+        }
+        assert_eq!(s.next_seq(), 5);
+
+        // requested seq beyond high-water => clamp to next_seq (5).
+        let a = s.handle_login(&lr("S", 100)).unwrap();
+        let acc = a.outbound[0].parse_login_accepted();
+        assert_eq!(acc.sequence, 5);
+        // No replay since start == next_seq.
+        assert_eq!(a.outbound.len(), 1);
+
+        // requested seq within store => replay snapshot from that seq.
+        let mut s2 = ServerSession::new("S", 64).unwrap();
+        for i in 1..=4u64 {
+            s2.enqueue(&[i as u8]);
+        }
+        let a2 = s2.handle_login(&lr("S", 3)).unwrap();
+        let acc2 = a2.outbound[0].parse_login_accepted();
+        assert_eq!(acc2.sequence, 3);
+        // 1 accept + replay 3,4 = 3 outbound packets.
+        assert_eq!(a2.outbound.len(), 3);
+        assert_eq!(a2.outbound[1].packet_type, packet::SEQUENCED_DATA);
+        assert_eq!(a2.outbound[1].payload, vec![3u8]);
+        assert_eq!(a2.outbound[2].payload, vec![4u8]);
+
+        // requested seq older than store window => clamp to oldest retained.
+        let mut s3 = ServerSession::new("S", 2).unwrap();
+        for i in 1..=4u64 {
+            s3.enqueue(&[i as u8]);
+        }
+        // store now holds 3,4 (oldest = 3).
+        let a3 = s3.handle_login(&lr("S", 1)).unwrap();
+        let acc3 = a3.outbound[0].parse_login_accepted();
+        assert_eq!(acc3.sequence, 3, "clamped to oldest retained seq");
+        // accept + replay of the whole retained window (3,4) = 3 outbound.
+        assert_eq!(a3.outbound.len(), 3);
+        assert_eq!(a3.outbound[1].payload, vec![3u8]);
+        assert_eq!(a3.outbound[2].payload, vec![4u8]);
+    }
+
+    #[test]
+    fn handle_packet_routes_types() {
+        let mut s = ServerSession::new("S", 8).unwrap();
+        // UNSEQUENCED_DATA => no actions, no close.
+        let a = s.handle_packet(&Packet::new(packet::UNSEQUENCED_DATA, b"order".to_vec())).unwrap();
+        assert!(a.outbound.is_empty());
+        assert!(!a.close);
+        // CLIENT_HEARTBEAT => no actions.
+        let a = s.handle_packet(&Packet::new(packet::CLIENT_HEARTBEAT, vec![])).unwrap();
+        assert!(a.outbound.is_empty());
+        assert!(!a.close);
+        // DEBUG => ignored.
+        let a = s.handle_packet(&Packet::new(packet::DEBUG, vec![])).unwrap();
+        assert!(a.outbound.is_empty());
+        // LOGOUT => close.
+        let a = s.handle_packet(&Packet::new(packet::LOGOUT_REQUEST, vec![])).unwrap();
+        assert!(a.close);
+        // LOGIN_REQUEST routes to handle_login.
+        let mut s2 = ServerSession::new("S", 8).unwrap();
+        let req = packet::login_request("u", "p", "S", 0);
+        let a2 = s2.handle_packet(&req).unwrap();
+        assert_eq!(a2.outbound[0].packet_type, packet::LOGIN_ACCEPTED);
+        // Unknown type => error.
+        let a3 = s.handle_packet(&Packet::new(b'Q', vec![]));
+        assert!(matches!(a3, Err(SessionError::UnexpectedPacket('Q'))));
+    }
+
+    #[test]
+    fn sequenced_packet_wraps_payload() {
+        let s = ServerSession::new("S", 8).unwrap();
+        let p = s.sequenced_packet(b"report");
+        assert_eq!(p.packet_type, packet::SEQUENCED_DATA);
+        assert_eq!(p.payload, b"report");
+    }
+
+    #[test]
+    fn server_error_display() {
+        assert_eq!(SessionError::NotLoggedIn.to_string(), "not logged in yet");
+        assert_eq!(SessionError::AlreadyLoggedIn.to_string(), "already logged in");
+        assert_eq!(
+            SessionError::LoginRejected(REJECT_NOT_AUTHORIZED).to_string(),
+            "login rejected: reason='A'"
+        );
+        assert_eq!(
+            SessionError::SequenceGap { expected: 5, got: 8 }.to_string(),
+            "sequence gap: expected=5 got=8"
+        );
+        assert_eq!(
+            SessionError::UnexpectedPacket('X').to_string(),
+            "unexpected packet type 'X'"
+        );
+        assert_eq!(
+            SessionError::SessionTooLong.to_string(),
+            "session too long (max 10 chars)"
+        );
+    }
+
+    // ---- ClientSession ----
+
+    #[test]
+    fn client_initial_state() {
+        let c = ClientSession::new("SESS_A");
+        assert_eq!(c.expected_seq, 1);
+        assert_eq!(c.start_seq, 0);
+        assert!(!c.is_logged_in());
+    }
+
+    #[test]
+    fn client_login_request_uses_expected_seq() {
+        let mut c = ClientSession::new("SESS_A");
+        c.expected_seq = 77;
+        let p = c.login_request("user", "pass");
+        assert_eq!(p.packet_type, packet::LOGIN_REQUEST);
+        let lr = p.parse_login_request();
+        assert_eq!(lr.requested_session, "SESS_A");
+        assert_eq!(lr.requested_sequence, 77);
+        assert_eq!(lr.username, "user");
+        assert_eq!(lr.password, "pass");
+    }
+
+    #[test]
+    fn client_login_accepted_sets_watermarks() {
+        let mut c = ClientSession::new("SESS_A");
+        let acc = packet::login_accepted("SESS_A", 42);
+        let a = c.handle_packet(&acc, 1_000).unwrap();
+        assert!(c.is_logged_in());
+        assert_eq!(c.start_seq, 42);
+        assert_eq!(c.expected_seq, 42);
+        assert_eq!(c.last_rx_ns, 1_000);
+        assert!(a.outbound.is_empty());
+        assert!(!a.close);
+        assert!(a.heartbeat_deadline.is_none());
+    }
+
+    #[test]
+    fn client_login_rejected_raises_error() {
+        let mut c = ClientSession::new("SESS_A");
+        let rej = packet::login_rejected(REJECT_NOT_AUTHORIZED);
+        let err = c.handle_packet(&rej, 0).unwrap_err();
+        assert!(matches!(err, SessionError::LoginRejected(r) if r == REJECT_NOT_AUTHORIZED));
+        assert!(!c.is_logged_in());
+    }
+
+    #[test]
+    fn client_sequenced_data_requires_login() {
+        let mut c = ClientSession::new("SESS_A");
+        let p = Packet::new(packet::SEQUENCED_DATA, b"x".to_vec());
+        assert!(matches!(c.handle_packet(&p, 0), Err(SessionError::NotLoggedIn)));
+    }
+
+    #[test]
+    fn client_sequenced_data_advances_seq_and_empty_means_eos() {
+        let mut c = ClientSession::new("SESS_A");
+        c.handle_packet(&packet::login_accepted("SESS_A", 10), 0).unwrap();
+        assert_eq!(c.expected_seq, 10);
+        c.handle_packet(&Packet::new(packet::SEQUENCED_DATA, b"r1".to_vec()), 0).unwrap();
+        assert_eq!(c.expected_seq, 11);
+        c.handle_packet(&Packet::new(packet::SEQUENCED_DATA, b"r2".to_vec()), 0).unwrap();
+        assert_eq!(c.expected_seq, 12);
+        // Zero-length sequenced data = End of Session marker => logged out.
+        let a = c.handle_packet(&Packet::new(packet::SEQUENCED_DATA, vec![]), 0).unwrap();
+        assert!(!c.is_logged_in());
+        assert!(!a.close);
+    }
+
+    #[test]
+    fn client_heartbeat_and_debug_ignored() {
+        let mut c = ClientSession::new("S");
+        let a = c.handle_packet(&Packet::new(packet::SERVER_HEARTBEAT, vec![]), 5).unwrap();
+        assert!(a.outbound.is_empty());
+        assert!(!a.close);
+        c.handle_packet(&Packet::new(packet::DEBUG, vec![]), 6).unwrap();
+        assert_eq!(c.last_rx_ns, 6);
+    }
+
+    #[test]
+    fn client_end_of_session_closes_and_logs_out() {
+        let mut c = ClientSession::new("S");
+        c.handle_packet(&packet::login_accepted("S", 1), 0).unwrap();
+        let a = c.handle_packet(&packet::end_of_session(), 0).unwrap();
+        assert!(a.close);
+        assert!(!c.is_logged_in());
+    }
+
+    #[test]
+    fn client_unknown_packet_raises() {
+        let mut c = ClientSession::new("S");
+        // b'Z' is END_OF_SESSION (a valid type), so use b'Q' for the
+        // genuinely-unknown path.
+        assert!(matches!(
+            c.handle_packet(&Packet::new(b'Q', vec![]), 0),
+            Err(SessionError::UnexpectedPacket('Q'))
+        ));
     }
 }

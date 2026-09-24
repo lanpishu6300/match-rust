@@ -12,14 +12,14 @@
 //!                             price(4) tif(4) firm(4) display(1)
 //!                             capacity(1) ise(1) minqty(4) crosstype(1) custtype(1)
 //! Cancel Order    'X' 19 B   token(14) shares(4)
-//! Replace Order   'U' 47 B   existing(14) replacement(14) shares(4) price(4)
+//! Replace Order   'U' 49 B   existing(14) replacement(14) shares(4) price(4)
 //!                             tif(4) display(1) ise(1) minqty(4) crosstype(1) custtype(1)
 //! Modify Order    'M' 21 B   token(14) side(1) shares(4)
 //! Accepted        'A' 66 B   timestamp(8) token(14) side(1) shares(4) stock(8)
 //!                             price(4) tif(4) firm(4) display(1) ref(8)
 //!                             capacity(1) ise(1) minqty(4) crosstype(1) state(1) bbw(1)
-//! Executed        'E' 34 B   timestamp(8) token(14) shares(4) match(4) price(4)
-//! Canceled        'C' 27 B   timestamp(8) token(14) decrement(4) reason(1)
+//! Executed        'E' 35 B   timestamp(8) token(14) shares(4) match(4) price(4)
+//! Canceled        'C' 28 B   timestamp(8) token(14) decrement(4) reason(1)
 //! ```
 //!
 //! Field conventions: integers are unsigned big-endian; alpha fields are
@@ -52,7 +52,7 @@ pub struct CancelOrder {
     pub shares: u32,   // new intended order size; 0 cancels all
 }
 
-/// Replace Order Message ('U', 47 bytes).
+/// Replace Order Message ('U', 49 bytes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplaceOrder {
     pub existing_token: String,
@@ -83,7 +83,7 @@ pub struct Accepted {
     pub order_state: u8, // L=live, D=dead
 }
 
-/// Executed Message ('E', 34 bytes).
+/// Executed Message ('E', 35 bytes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Executed {
     pub timestamp: u64,
@@ -93,7 +93,7 @@ pub struct Executed {
     pub price: i32,
 }
 
-/// Canceled Message ('C', 27 bytes).
+/// Canceled Message ('C', 28 bytes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Canceled {
     pub timestamp: u64,
@@ -127,10 +127,10 @@ impl fmt::Display for OuchMessage {
 
 const ENTER_LEN: usize = 49;
 const CANCEL_LEN: usize = 19;
-const REPLACE_LEN: usize = 47;
+const REPLACE_LEN: usize = 49; // 1 + 14 + 14 + 4 + 4 + 4 + 1 + 1 + 4 + 1 + 1
 const ACCEPTED_LEN: usize = 66;
-const EXECUTED_LEN: usize = 34;
-const CANCELED_LEN: usize = 27;
+const EXECUTED_LEN: usize = 35; // 1 + 8 + 14 + 4 + 4 + 4
+const CANCELED_LEN: usize = 28; // 1 + 8 + 14 + 4 + 1
 
 // ---- encode ----
 
@@ -182,7 +182,7 @@ pub fn encode_cancel(m: &CancelOrder) -> Vec<u8> {
     b
 }
 
-/// Encode a Replace Order message (47 bytes).
+/// Encode a Replace Order message (49 bytes).
 pub fn encode_replace(m: &ReplaceOrder) -> Vec<u8> {
     let mut b = Vec::with_capacity(REPLACE_LEN);
     b.push(b'U');
@@ -222,7 +222,7 @@ pub fn encode_accepted(m: &Accepted) -> Vec<u8> {
     b
 }
 
-/// Encode an Executed report (34 bytes).
+/// Encode an Executed report (35 bytes).
 pub fn encode_executed(m: &Executed) -> Vec<u8> {
     let mut b = Vec::with_capacity(EXECUTED_LEN);
     b.push(b'E');
@@ -234,7 +234,7 @@ pub fn encode_executed(m: &Executed) -> Vec<u8> {
     b
 }
 
-/// Encode a Canceled report (27 bytes).
+/// Encode a Canceled report (28 bytes).
 pub fn encode_canceled(m: &Canceled) -> Vec<u8> {
     let mut b = Vec::with_capacity(CANCELED_LEN);
     b.push(b'C');
@@ -412,5 +412,193 @@ mod tests {
         let enc = encode_accepted(&m);
         assert_eq!(enc.len(), 66);
         assert_eq!(parse(&enc), Some(OuchMessage::Accepted(m)));
+    }
+
+    #[test]
+    fn replace_roundtrip() {
+        let m = ReplaceOrder {
+            existing_token: "ORD-0001".into(),
+            replacement_token: "ORD-0002".into(),
+            shares: 200,
+            price: 190_0000,
+            time_in_force: 99998,
+            display: b'Y',
+            intermarket_sweep: b'N',
+            min_qty: 5,
+            cross_type: b'N',
+            customer_type: b'R',
+        };
+        let enc = encode_replace(&m);
+        assert_eq!(enc.len(), 49);
+        assert_eq!(parse(&enc), Some(OuchMessage::ReplaceOrder(m)));
+    }
+
+    #[test]
+    fn executed_roundtrip() {
+        let m = Executed {
+            timestamp: 12_345_678_902u64,
+            token: "ORD-0001".into(),
+            shares: 100,
+            match_number: 88_888,
+            price: 195_5000,
+        };
+        let enc = encode_executed(&m);
+        assert_eq!(enc.len(), 35);
+        assert_eq!(parse(&enc), Some(OuchMessage::Executed(m)));
+    }
+
+    #[test]
+    fn canceled_roundtrip() {
+        let m = Canceled {
+            timestamp: 12_345_678_903u64,
+            token: "ORD-0001".into(),
+            decrement: 100,
+            reason: b'U', // user requested
+        };
+        let enc = encode_canceled(&m);
+        assert_eq!(enc.len(), 28);
+        assert_eq!(parse(&enc), Some(OuchMessage::Canceled(m)));
+    }
+
+    #[test]
+    fn parse_rejects_unknown_and_truncated() {
+        assert_eq!(parse(b""), None);
+        assert_eq!(parse(b"Q"), None, "unknown type");
+        // Each type needs its full fixed length.
+        assert_eq!(parse(&[b'O'; 48]), None, "enter truncated by 1");
+        assert_eq!(parse(&[b'X'; 18]), None, "cancel truncated by 1");
+        assert_eq!(parse(&[b'U'; 46]), None, "replace truncated by 1");
+        assert_eq!(parse(&[b'A'; 65]), None, "accepted truncated by 1");
+        assert_eq!(parse(&[b'E'; 33]), None, "executed truncated by 1");
+        assert_eq!(parse(&[b'C'; 26]), None, "canceled truncated by 1");
+        // Exact minimum length parses (all-zero fields).
+        assert!(parse(&[b'X'; 19]).is_some());
+        assert!(parse(&[b'C'; 28]).is_some());
+        assert_eq!(parse(&[b'C'; 27]), None, "canceled still truncated at 27");
+    }
+
+    #[test]
+    fn parse_tolerates_extra_trailing_bytes() {
+        let mut enc = encode_cancel(&CancelOrder { token: "T".into(), shares: 3 });
+        enc.push(b'x'); // trailing garbage beyond the fixed length
+        let parsed = parse(&enc);
+        assert!(matches!(parsed, Some(OuchMessage::CancelOrder(_))));
+    }
+
+    #[test]
+    fn alpha_fields_truncate_and_decode_lossy() {
+        // Over-long token is truncated to 14 on encode.
+        let m = EnterOrder {
+            token: "12345678901234567890".into(),
+            side: b'S',
+            shares: 10,
+            stock: "VERYLONGSTOCK".into(), // 12 > 8
+            price: 1_0000,
+            time_in_force: 0,
+            firm: "TOOLONG".into(), // 7 > 4
+            display: b'Y',
+            capacity: b'P',
+            intermarket_sweep: b'Y',
+            min_qty: 1,
+            cross_type: b'N',
+            customer_type: b'R',
+        };
+        let enc = encode_enter(&m);
+        assert_eq!(enc.len(), 49);
+        match parse(&enc).unwrap() {
+            OuchMessage::EnterOrder(d) => {
+                assert_eq!(d.token.len(), 14);
+                assert_eq!(d.token, "12345678901234");
+                assert_eq!(d.stock, "VERYLONG");
+                assert_eq!(d.firm, "TOOL");
+            }
+            other => panic!("expected EnterOrder, got {other:?}"),
+        }
+
+        // Invalid UTF-8 in an alpha field decodes lossily instead of panicking.
+        let mut raw = encode_enter(&EnterOrder {
+            token: "T".into(),
+            side: b'B',
+            shares: 1,
+            stock: "S".into(),
+            price: 0,
+            time_in_force: 0,
+            firm: "F".into(),
+            display: b'Y',
+            capacity: b'A',
+            intermarket_sweep: b'N',
+            min_qty: 0,
+            cross_type: b'N',
+            customer_type: b' ',
+        });
+        raw[1] = 0xFF; // corrupt first token byte
+        let parsed = parse(&raw).unwrap();
+        if let OuchMessage::EnterOrder(d) = parsed {
+            assert!(d.token.contains('\u{FFFD}'));
+        }
+    }
+
+    #[test]
+    fn side_and_code_values_roundtrip() {
+        for side in [b'B', b'S', b'T', b'E'] {
+            let m = EnterOrder {
+                token: "T".into(),
+                side,
+                shares: 1,
+                stock: "AAPL".into(),
+                price: 0,
+                time_in_force: 0,
+                firm: "F".into(),
+                display: b'Y',
+                capacity: b'A',
+                intermarket_sweep: b'N',
+                min_qty: 0,
+                cross_type: b'N',
+                customer_type: b' ',
+            };
+            let enc = encode_enter(&m);
+            let OuchMessage::EnterOrder(d) = parse(&enc).unwrap() else {
+                panic!("parse failed");
+            };
+            assert_eq!(d.side, side);
+        }
+    }
+
+    #[test]
+    fn ouch_display_formats() {
+        let e = EnterOrder { token: "T1".into(), side: b'B', shares: 10, stock: "AAPL".into(), price: 1_0000, time_in_force: 0, firm: "F".into(), display: b'Y', capacity: b'A', intermarket_sweep: b'N', min_qty: 0, cross_type: b'N', customer_type: b' ' };
+        assert_eq!(OuchMessage::EnterOrder(e).to_string(), "O token=T1 side=B sh=10 AAPL px=10000");
+        let c = CancelOrder { token: "T1".into(), shares: 0 };
+        assert_eq!(OuchMessage::CancelOrder(c).to_string(), "X token=T1 sh=0");
+        let r = ReplaceOrder { existing_token: "A".into(), replacement_token: "B".into(), shares: 1, price: 2, time_in_force: 0, display: b'Y', intermarket_sweep: b'N', min_qty: 0, cross_type: b'N', customer_type: b' ' };
+        assert_eq!(OuchMessage::ReplaceOrder(r).to_string(), "U old=A new=B sh=1 px=2");
+        let a = Accepted { timestamp: 1, token: "T1".into(), side: b'B', shares: 10, stock: "AAPL".into(), price: 1, time_in_force: 0, firm: "F".into(), display: b'Y', ref_number: 5, order_state: b'L' };
+        assert_eq!(OuchMessage::Accepted(a).to_string(), "A token=T1 sh=10 ref=5 state=L");
+        let ex = Executed { timestamp: 1, token: "T1".into(), shares: 5, match_number: 3, price: 1 };
+        assert_eq!(OuchMessage::Executed(ex).to_string(), "E token=T1 sh=5 match=3 px=1");
+        let ca = Canceled { timestamp: 1, token: "T1".into(), decrement: 2, reason: b'U' };
+        assert_eq!(OuchMessage::Canceled(ca).to_string(), "C token=T1 dec=2 reason=U");
+    }
+
+    #[test]
+    fn parse_recovers_all_six_types_in_one_buffer() {
+        let all = [
+            encode_enter(&EnterOrder { token: "T".into(), side: b'B', shares: 1, stock: "S".into(), price: 0, time_in_force: 0, firm: "F".into(), display: b'Y', capacity: b'A', intermarket_sweep: b'N', min_qty: 0, cross_type: b'N', customer_type: b' ' }),
+            encode_cancel(&CancelOrder { token: "T".into(), shares: 0 }),
+            encode_replace(&ReplaceOrder { existing_token: "A".into(), replacement_token: "B".into(), shares: 1, price: 0, time_in_force: 0, display: b'Y', intermarket_sweep: b'N', min_qty: 0, cross_type: b'N', customer_type: b' ' }),
+            encode_accepted(&Accepted { timestamp: 1, token: "T".into(), side: b'B', shares: 1, stock: "S".into(), price: 0, time_in_force: 0, firm: "F".into(), display: b'Y', ref_number: 1, order_state: b'L' }),
+            encode_executed(&Executed { timestamp: 1, token: "T".into(), shares: 1, match_number: 1, price: 0 }),
+            encode_canceled(&Canceled { timestamp: 1, token: "T".into(), decrement: 1, reason: b'U' }),
+        ];
+        let kinds: Vec<&str> = all.iter().map(|b| match parse(b) {
+            Some(OuchMessage::EnterOrder(_)) => "enter",
+            Some(OuchMessage::CancelOrder(_)) => "cancel",
+            Some(OuchMessage::ReplaceOrder(_)) => "replace",
+            Some(OuchMessage::Accepted(_)) => "accepted",
+            Some(OuchMessage::Executed(_)) => "executed",
+            Some(OuchMessage::Canceled(_)) => "canceled",
+            None => "none",
+        }).collect();
+        assert_eq!(kinds, ["enter", "cancel", "replace", "accepted", "executed", "canceled"]);
     }
 }
