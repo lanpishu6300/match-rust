@@ -515,3 +515,22 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 | dpdk_tap_order 下单链路回放（1001 帧/1000 单） | ✅ rx=1001 proc=1000 tx=2998——**100% 交付** |
 
 **架构口径**：aarch64 容器完成**功能复现**（与云 VM x86 一致：链路正确、100% 交付）；**性能数字不跨架构对比**——云 VM x86 处理侧 p50 1.0µs 锚点仅适用于 x86，ARM 容器数据需单独基准。
+
+### 6.10 真实内核 UDP 路径 + HpEngine（2026-09-24，Mac 10 核，回环）
+
+**形态 D 接收语义**：客户端 UDP 发单（25B：side+price_tick+qty+client_id）→ 内核 UDP 收包（每 shard 独立 socket/端口，等价 RSS 分流）→ HpEngine 撮合 → ACK 回报。**客户端串行 send→recv（每单等 ACK），RTT 受限测量**。
+
+**修复**：服务端阻塞 recv 无超时 → 客户端发完永不退出（join 卡死）→ `set_read_timeout(50ms)` + idle>10 break。
+
+| shards | 吞吐 | p50 RTT | p99 RTT | 说明 |
+|---|---|---|---|---|
+| 1 | 19.9k/s | **13µs** | 93µs | 单 socket |
+| 2 | 35.8k/s | 17µs | 74µs | 4 线程 |
+| 4 | 66.5k/s | 21µs | 112µs | 8 线程 |
+| 8 | 83.5k/s | 59µs | 137µs | 16 线程 > 10 核（超核回落） |
+
+**诚实口径**：
+1. **吞吐是测量方式限制**：客户端每单等 ACK（吞吐 ≈ 1/RTT/shard），**不是引擎上限**——引擎本身 23M/s（§7）；要测真实吞吐需流水线发单（不等 ACK）。
+2. **延迟预期修正**：注释预期 p50 2-6µs 未达到——回环 UDP 实际 p50 13-21µs（1-4 shards：syscall + 串行 + 调度）；**方向确认**：UDP < TCP（对照 tcp_rss_shard_bench p50 18-62µs）。
+3. **8 shards 超核**：8 server + 8 client = 16 线程 > 10 核，p50 升到 59µs（同 §6.8 回落机理）。
+4. **这是内核 UDP**（非 DPDK）：估算 DPDK UDP 全链路（PMD ~1µs 处理 + 无内核 syscall）→ RTT 可压到 **3-10µs**；需真机 NIC 验证。
