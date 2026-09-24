@@ -534,3 +534,25 @@ NIC RSS(hash(symbol)) ──队列0──▶ shard0(收包+撮合+回报)   ← 
 2. **延迟预期修正**：注释预期 p50 2-6µs 未达到——回环 UDP 实际 p50 13-21µs（1-4 shards：syscall + 串行 + 调度）；**方向确认**：UDP < TCP（对照 tcp_rss_shard_bench p50 18-62µs）。
 3. **8 shards 超核**：8 server + 8 client = 16 线程 > 10 核，p50 升到 59µs（同 §6.8 回落机理）。
 4. **这是内核 UDP**（非 DPDK）：估算 DPDK UDP 全链路（PMD ~1µs 处理 + 无内核 syscall）→ RTT 可压到 **3-10µs**；需真机 NIC 验证。
+
+### 6.11 CPU 绑核（--pin）实测：macOS 不支持，Linux 生效（2026-09-24）
+
+**背景**：§6.10 的 bench 全部为 OS 自由调度（线程可跨核迁移，p99 抖动来源）。项目已有 `match-core-hp/affinity.rs`（`pin_current_thread`，`core_affinity`，feature `affinity`）但从未启用 → 本次接入 `udp_rss_hp_bench --pin`（server 钉核 `2k`、client 钉核 `2k+1`）。
+
+**实测**：
+| 环境 | pin API | 结果 |
+|---|---|---|
+| macOS Apple Silicon（原生） | `thread_policy_set` | ❌ `AffinityError("set_for_current failed")`——**平台不支持线程亲和性**（M 系列芯片无效） |
+| Linux 容器（Docker Desktop VM, aarch64） | `sched_setaffinity` | ✅ 绑核成功，p99 下降 |
+
+**Linux 容器内绑核 vs 自由调度（同环境对照，aarch64 VM）**：
+| shards | pin p50 | pin p99 | free p50 | free p99 | p99 收益 |
+|---|---|---|---|---|---|
+| 1 | 50µs | **106µs** | 50µs | 122µs | -13% |
+| 2 | 52µs | **104µs** | 52µs | 112µs | -7% |
+| 4 | 62µs | **123µs** | 62µs | 139µs | -11% |
+
+**结论**：
+1. **绑核消除调度尾部**：p50 不受影响（VM 内 syscall/loopback 固定开销），**p99 降 7-13%**——与理论一致（绑核消尾不消均值）。
+2. **macOS 无法验证绑核**（API 失败，实测证据）；Linux 容器可验证（API 可用）；**真机 Linux 完整方案** = `sched_setaffinity` + GRUB `isolcpus` + `nohz_full`，p99 可进一步逼近 p50。
+3. **Docker Desktop VM 不是延迟基准环境**：同代码同架构，容器 p50 50µs vs Mac 原生 13µs（~4× VM 开销）——**延迟对比只在同环境做**。

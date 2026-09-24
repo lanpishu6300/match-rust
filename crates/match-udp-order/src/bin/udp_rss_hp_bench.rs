@@ -42,8 +42,12 @@ fn decode(b: &[u8; PKT_LEN]) -> (Side, i64, i64, u64) {
     (side, tick, qty, client)
 }
 
-/// 服务端：UDP 收包 → HpEngine → ACK
-fn server_run(shard_id: usize) -> io::Result<(usize, usize)> {
+/// 服务端：UDP 收包 → HpEngine → ACK（--pin 时钉到核 2*shard_id）
+fn server_run(shard_id: usize, pin: bool) -> io::Result<(usize, usize)> {
+    if pin {
+        match_core_hp::affinity::pin_current_thread(shard_id * 2)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    }
     let sock = UdpSocket::bind(("127.0.0.1", BASE_PORT + shard_id as u16))?;
     // 客户端发完即退出：recv 超时（50ms）→ idle 累计 → break（否则 UDP 无连接，
     // 阻塞 recv 永远等不到 Err，join 卡死）
@@ -80,8 +84,12 @@ fn server_run(shard_id: usize) -> io::Result<(usize, usize)> {
     Ok((handled, fills))
 }
 
-/// 客户端：UDP 发单 + 收 ACK（RTT）
-fn client_run(shard_id: usize, per_shard: usize) -> io::Result<(usize, Vec<Duration>)> {
+/// 客户端：UDP 发单 + 收 ACK（RTT，--pin 时钉到核 2*shard_id+1）
+fn client_run(shard_id: usize, per_shard: usize, pin: bool) -> io::Result<(usize, Vec<Duration>)> {
+    if pin {
+        match_core_hp::affinity::pin_current_thread(shard_id * 2 + 1)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    }
     let sock = UdpSocket::bind(("127.0.0.1", 0))?;
     let server: SocketAddr = format!("127.0.0.1:{}", BASE_PORT + shard_id as u16).parse().unwrap();
     let sym_base = shard_id * SYMBOLS_PER_SHARD;
@@ -106,27 +114,29 @@ fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut shards = SHARDS_DEFAULT;
     let mut per_shard = PER_SHARD_DEFAULT;
+    let mut pin = false;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--shards" => { i += 1; shards = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(SHARDS_DEFAULT); }
             "--per-shard" => { i += 1; per_shard = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(PER_SHARD_DEFAULT); }
+            "--pin" => pin = true,
             v if v.starts_with("--") => {}
             v => per_shard = v.parse().unwrap_or(PER_SHARD_DEFAULT),
         }
         i += 1;
     }
-    println!("=== udp_rss_hp_bench: shards={shards} per_shard={per_shard} (total={}) pkt={PKT_LEN}B ===", shards * per_shard);
+    println!("=== udp_rss_hp_bench: shards={shards} per_shard={per_shard} (total={}) pkt={PKT_LEN}B pin={pin} ===", shards * per_shard);
 
     let t0 = Instant::now();
     let mut server_handles = Vec::with_capacity(shards);
     let mut client_handles = Vec::with_capacity(shards);
     for k in 0..shards {
-        server_handles.push(std::thread::spawn(move || server_run(k)));
+        server_handles.push(std::thread::spawn(move || server_run(k, pin)));
     }
     std::thread::sleep(Duration::from_millis(100));
     for k in 0..shards {
-        client_handles.push(std::thread::spawn(move || client_run(k, per_shard)));
+        client_handles.push(std::thread::spawn(move || client_run(k, per_shard, pin)));
     }
 
     let mut handled_total = 0usize;
