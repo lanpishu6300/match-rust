@@ -154,7 +154,7 @@ fn server_main(orders_target: usize, port: u16) -> std::io::Result<u64> {
                                 if processed < 10 {
                                     eprintln!("[s] ORDER seq={cli_seq}");
                                 }
-                                if let Some((mq, no)) = parse_order(&payload) {
+                                if let Some((mq, no)) = parse_order(payload) {
                                     let bb = match_core::BbOrder(
                                         type_convert_spot(&mq).expect("convert"),
                                     );
