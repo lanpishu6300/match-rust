@@ -245,7 +245,7 @@ fn main() -> Result<(), String> {
                             eprintln!("[dpdk] HELLO cid={cid} last={last} outs={}", outs.len());
                         }
                         ServerEvent::Order(cli_seq, body) => {
-                            if let Some((mq, no)) = parse_order(&body) {
+                            if let Some((mq, no)) = parse_order(body) {
                                 let bb = match_core::BbOrder(type_convert_spot(&mq).expect("convert"));
                                 let evs2 = engine.on_order(bb);
                                 processed += 1;
