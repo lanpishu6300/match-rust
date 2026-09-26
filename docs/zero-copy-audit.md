@@ -19,7 +19,7 @@
 | ④ | 业务转换 `udp_order_gw.rs:parse_order/mq_limit`、`engine.rs:28` | ~~文本 split → `MqOrder` 5×`Option<String>`~~ → 本分支已改 `Option<SmolStr>`（≤23B 栈内零分配）；`symbol_key.clone()` 残留于 match-core | ~~每单 6–8 次 String 堆分配~~ → 0（仅 type_convert 保持 2 次 to_string） | §5.1 陷阱1/10、§5.3 陷阱9/11 | ✅ 本分支修复（P0-b） |
 | ⑤ | 回报文本 `report_text`、`format!("A|{no}|btcusdt")` | `format!` → `into_bytes()` | 每成交/挂单 1 次分配 | §5.1 陷阱2（应 `write!` 复用 Buffer） | ❌ 遗留 P1 |
 | ⑥ | 发包 `dpdk_tap_order.rs:build_reply` + `dpdk/port.rs:tx_frame` | 构造中间 `Vec<u8>` → `rte_pktmbuf_append`+`copy_nonoverlapping` | 2 次拷贝（Vec 组装 + memcpy 入 mbuf） | §4.4（应直接写 mbuf data room/prepend） | ⚠️ 遗留 P2 |
-| ⑦ | 行情共享 `moldudp64/publisher.rs:66`、`ring_buf.rs:89`、`subscriber.rs:162` | cache `Vec<u8>` + NAK `m.clone()` + 订阅 `to_vec` | 发布 1 拷贝 + NAK/订阅每消息 1 拷贝 | §2.2/4.2（应 Bytes 共享） | ❌ 遗留 P1 |
+| ⑦ | 行情共享 `moldudp64/publisher.rs:66`、`ring_buf.rs:89`、`subscriber.rs:162` | ~~cache `Vec<u8>` + NAK `m.clone()`~~ → 本分支 ring cache 已改 `Arc<[u8]>`（NAK 重传 clone 变引用计数）；`subscriber.rs:162 to_vec` 订阅侧接收待 P1-2 | ~~发布 1 拷贝 + NAK 每消息深拷贝~~ → NAK 多订阅者免拷贝 | §2.2/4.2（应 Bytes 共享） | ✅ 本分支修复（P1） |
 | ⑧ | 行情生产端传输 `publisher.rs:144/200` | `UdpSocket::send_to`（内核栈） | 用户态→内核→网卡 2 次拷贝 | §4.4–4.5（生产端应 DPDK tx） | ⚠️ 遗留 P2（已有 `mold_dpdk_tx` 可接） |
 
 ## 3. 本分支已实施（P0-a：会话事件借用化 + 栈上小帧）
@@ -46,12 +46,20 @@
 
 **净收益**：下单热路径每单 6–8 次 String 堆分配 → 0（纯栈内 + 数值直接 `BigDecimal` 解析）。
 
+## 3c. 本分支已实施（P1-a：MoldUDP64 重传缓存 Arc 化）
+
+`crates/match-moldudp64/src/ring_buf.rs`：
+
+- `CachedMessage.payload: Vec<u8>` → `Arc<[u8]>`；`push` 一次 `Arc::from` 分配后，NAK 重传 `get_range` 的 `m.clone()` 变引用计数递增——多订阅者并发 NAK 场景从每消息深拷贝降为 0；
+- 下游（`retransmit.rs`、`publisher.rs` 测试）经 Deref/`as_ref` 自动适配，40 个 crate 测试全绿。
+
+> 注：`udp-order/session.rs` 的 store/pending 与 `soupbintcp/session.rs` 回报窗口为**单份存储**（encode 出站帧的拷贝不可避免），改 Arc 无增量收益，保留 `Vec<u8>` 避免公共 API 无谓变更。
+
 ## 4. 遗留项与修复优先级
 
 | 优先级 | 动作 | 消除 | 涉及文件 |
 |---|---|---|---|
-| P1 | 重传窗口/NAK 缓存改 `Arc<[u8]>`/`bytes::Bytes`（clone 变引用计数） | 回报/NAK 每消息拷贝 | `udp-order/session.rs`、`soupbintcp/session.rs`、`moldudp64/ring_buf.rs` |
-| P1 | `report_text` 用 `write!` 复用 `BytesMut`；日志热路径禁 `format!` | 每成交 1 分配 | `udp_order_gw.rs`、`dpdk_tap_order.rs` |
+| P1-b | `subscriber.rs:162 to_vec` 订阅侧接收改 Bytes 共享；`report_text` 用 `write!` 复用 `BytesMut`；日志热路径禁 `format!` | 订阅每消息 1 拷贝、每成交 1 分配 | `subscriber.rs`、`udp_order_gw.rs`、`dpdk_tap_order.rs` |
 | P2 | `tx_frame` 支持直接写 mbuf data room（`build_reply` 去中间 Vec，IP 校验和原位重算） | 发包 2 次拷贝 → 1 次 | `dpdk/port.rs`、`dpdk_tap_order.rs` |
 | P2 | MoldUDP64 发布接 DPDK tx（复用 `mold_dpdk_tx`/`mold_outbound_bench`） | 行情侧内核栈 2 次拷贝 | `match-moldudp64` |
 
