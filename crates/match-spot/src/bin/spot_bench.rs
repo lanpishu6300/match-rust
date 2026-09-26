@@ -256,7 +256,11 @@ fn encode_multi(orders: &[MqOrder]) -> Vec<(String, Vec<u8>)> {
     orders
         .iter()
         .map(|mq| {
-            let sym = mq.symbol_key.clone().unwrap_or_else(|| "btcusdt".into());
+            let sym = mq
+                .symbol_key
+                .clone()
+                .unwrap_or_else(|| "btcusdt".into())
+                .to_string();
             (sym, serde_json::to_vec(&[mq]).expect("json"))
         })
         .collect()

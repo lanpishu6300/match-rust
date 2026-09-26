@@ -16,7 +16,7 @@
 | ① | DPDK 收包 `dpdk/mod.rs:98-142` + `dpdk_tap_order.rs:238-240` | `rx_burst`→mbuf→`mtod(m).add(payload_off)`→`&[u8]` 直进会话 | 0 拷贝（仅帧头 20B 字段入栈结构） | §4.3 | ✅ 符合 |
 | ② | 会话解析 `udp-order/session.rs:on_datagram` | ~~`payload.to_vec()` ×3~~ → 本分支已改为事件携带 `&[u8]` 借用 | ~~每包 1 堆分配+拷贝~~ → 0 | §2.6/4.4 | ✅ 本分支修复 |
 | ③ | 回报/NAK 存储 `session.rs:ack_and_report`、`pending.insert`、`soupbintcp/session.rs:99` | `store`/`pending` 存 `Vec<u8>` | 每回报 1 次拷贝 | §2.2/4.2（应 Arc/Bytes 引用计数） | ❌ 遗留 P1 |
-| ④ | 业务转换 `udp_order_gw.rs:parse_order/mq_limit`、`engine.rs:28` | 文本 split → `MqOrder` 5×`Option<String>` + `symbol_key.clone()` | 每单 6–8 次 String 堆分配 | §5.1 陷阱1/10、§5.3 陷阱9/11 | ❌ 遗留 P0-b/P1 |
+| ④ | 业务转换 `udp_order_gw.rs:parse_order/mq_limit`、`engine.rs:28` | ~~文本 split → `MqOrder` 5×`Option<String>`~~ → 本分支已改 `Option<SmolStr>`（≤23B 栈内零分配）；`symbol_key.clone()` 残留于 match-core | ~~每单 6–8 次 String 堆分配~~ → 0（仅 type_convert 保持 2 次 to_string） | §5.1 陷阱1/10、§5.3 陷阱9/11 | ✅ 本分支修复（P0-b） |
 | ⑤ | 回报文本 `report_text`、`format!("A|{no}|btcusdt")` | `format!` → `into_bytes()` | 每成交/挂单 1 次分配 | §5.1 陷阱2（应 `write!` 复用 Buffer） | ❌ 遗留 P1 |
 | ⑥ | 发包 `dpdk_tap_order.rs:build_reply` + `dpdk/port.rs:tx_frame` | 构造中间 `Vec<u8>` → `rte_pktmbuf_append`+`copy_nonoverlapping` | 2 次拷贝（Vec 组装 + memcpy 入 mbuf） | §4.4（应直接写 mbuf data room/prepend） | ⚠️ 遗留 P2 |
 | ⑦ | 行情共享 `moldudp64/publisher.rs:66`、`ring_buf.rs:89`、`subscriber.rs:162` | cache `Vec<u8>` + NAK `m.clone()` + 订阅 `to_vec` | 发布 1 拷贝 + NAK/订阅每消息 1 拷贝 | §2.2/4.2（应 Bytes 共享） | ❌ 遗留 P1 |
@@ -35,11 +35,21 @@
 
 **安全约束**：借用事件只在 `on_datagram` 返回后、下一次调用前消费（当前全部调用方均为单 datagram 内循环消费，安全）。
 
+## 3b. 本分支已实施（P0-b：MqOrder 高频短文本字段 SmolStr 化）
+
+`crates/match-protocol`：
+
+- `MqOrder` 的 `symbol_key / coin_market / trust_order_no / trust_number / trust_price` 由 `Option<String>` 改 `Option<SmolStr>`（`smol_str` serde 兼容，JSON 表示不变）；≤23B 栈内存储、零堆分配，26 处 `Some(x.into())` 构造点自动兼容（&str/String → SmolStr）；
+- `type_convert` / `type_convert_spot`：`coin_market/trust_order_no` 由 clone 改 `as_ref().map(to_string)`（源头分配已消除，转换侧保持 2 次）；
+- `is_blank` 泛型化 `S: AsRef<str>`（validate/spot_validate）；
+- RPC 恢复构造（`match-spot`/`match-contract` rpc/order.rs）`row.x.clone().map(Into::into)`。
+
+**净收益**：下单热路径每单 6–8 次 String 堆分配 → 0（纯栈内 + 数值直接 `BigDecimal` 解析）。
+
 ## 4. 遗留项与修复优先级
 
 | 优先级 | 动作 | 消除 | 涉及文件 |
 |---|---|---|---|
-| P0-b | `parse_order`/`MqOrder` 去 String 链：`&str` 切分 + SmolStr/内联 symbol；`BbOrder` 直构或 symbol intern | 每单 6–8 次 String | `udp_order_gw.rs`、`dpdk_tap_order.rs`、`match-protocol`、`match-core` |
 | P1 | 重传窗口/NAK 缓存改 `Arc<[u8]>`/`bytes::Bytes`（clone 变引用计数） | 回报/NAK 每消息拷贝 | `udp-order/session.rs`、`soupbintcp/session.rs`、`moldudp64/ring_buf.rs` |
 | P1 | `report_text` 用 `write!` 复用 `BytesMut`；日志热路径禁 `format!` | 每成交 1 分配 | `udp_order_gw.rs`、`dpdk_tap_order.rs` |
 | P2 | `tx_frame` 支持直接写 mbuf data room（`build_reply` 去中间 Vec，IP 校验和原位重算） | 发包 2 次拷贝 → 1 次 | `dpdk/port.rs`、`dpdk_tap_order.rs` |
