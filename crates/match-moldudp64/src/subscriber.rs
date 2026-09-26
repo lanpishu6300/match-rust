@@ -29,19 +29,20 @@ pub struct GapInfo {
     pub lost: u64,
 }
 
-/// Result of parsing one Downstream packet.
+/// Result of parsing one Downstream packet. Message payloads **borrow the
+/// input buffer**（零拷贝）；在 `parse_packet`/`recv` 的入站缓冲存活期内有效。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseOutcome {
+pub struct ParseOutcome<'a> {
     pub first_seq: u64,
     pub msg_count: u16,
     pub is_heartbeat: bool,
     pub gap: Option<GapInfo>,
     /// `(seq, payload)` pairs for every message block (payload includes the
     /// 1-byte match-rust message-type tag when the publisher used tagged mode).
-    pub messages: Vec<(u64, Vec<u8>)>,
+    pub messages: Vec<(u64, &'a [u8])>,
 }
 
-impl ParseOutcome {
+impl<'a> ParseOutcome<'a> {
     pub fn heartbeat(seq: u64) -> Self {
         Self {
             first_seq: seq,
@@ -97,7 +98,8 @@ impl MoldSubscriber {
 
     /// Receive one datagram and parse it. Returns `Ok(None)` on would-block
     /// or when a short (< 20 B) datagram arrives (ignored, not fatal).
-    pub fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<ParseOutcome>> {
+    /// 返回的 `ParseOutcome` 借用 `buf`（消息零拷贝）。
+    pub fn recv<'a>(&mut self, buf: &'a mut [u8]) -> io::Result<Option<ParseOutcome<'a>>> {
         let (n, _src) = match self.socket.recv_from(buf) {
             Ok(v) => v,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
@@ -111,7 +113,8 @@ impl MoldSubscriber {
     }
 
     /// Parse a Downstream packet in place (transport-free, unit-testable).
-    pub fn parse_packet(&mut self, buf: &[u8]) -> ParseOutcome {
+    /// 返回的 `ParseOutcome` 借用 `buf`（消息零拷贝）。
+    pub fn parse_packet<'a>(&mut self, buf: &'a [u8]) -> ParseOutcome<'a> {
         let header = crate::types::DownstreamHeader::decode(buf)
             .expect("short MoldUDP64 datagram rejected at recv boundary");
         debug_assert_eq!(
@@ -159,7 +162,8 @@ impl MoldSubscriber {
                 truncated = true;
                 break;
             }
-            messages.push((seq, ptr[..len].to_vec()));
+            // 零拷贝：消息块借用入站 datagram，不再 to_vec。
+            messages.push((seq, &ptr[..len]));
             ptr = &ptr[len..];
             seq += 1;
         }
@@ -271,9 +275,11 @@ mod tests {
         let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
             .unwrap();
         // First packet establishes baseline 1..3.
-        sub.parse_packet(&data_packet(&SID, 1, &[b"a", b"b", b"c"]));
+        let pkt = data_packet(&SID, 1, &[b"a", b"b", b"c"]);
+        sub.parse_packet(&pkt);
         // Next packet starts at 6 => messages 4,5 lost.
-        let out = sub.parse_packet(&data_packet(&SID, 6, &[b"f", b"g"]));
+        let pkt = data_packet(&SID, 6, &[b"f", b"g"]);
+        let out = sub.parse_packet(&pkt);
         let gap = out.gap.unwrap();
         assert_eq!(gap.expected, 4);
         assert_eq!(gap.first_seq, 6);
@@ -291,8 +297,10 @@ mod tests {
         assert!(out.gap.is_none());
         assert_eq!(sub.last_seq(), None); // no data yet => floor unknown
 
-        sub.parse_packet(&data_packet(&SID, 5, &[b"e"])); // data up to 5
-        let hb2 = sub.parse_packet(&data_packet(&SID, 10, &[])); // heartbeat advertises 10
+        let pkt = data_packet(&SID, 5, &[b"e"]);
+        sub.parse_packet(&pkt); // data up to 5
+        let pkt = data_packet(&SID, 10, &[]);
+        let hb2 = sub.parse_packet(&pkt); // heartbeat advertises 10
         assert!(hb2.is_heartbeat);
         assert!(hb2.gap.is_none());
         assert_eq!(sub.last_seq(), Some(9)); // synced to hb.seq - 1
@@ -349,7 +357,8 @@ mod tests {
         // With no baseline, expected == first_seq: the very first packet can
         // never be "lost" (nothing to compare against), it just establishes
         // the watermark.
-        let out = sub.parse_packet(&data_packet(&SID, 5, &[b"e"]));
+        let pkt = data_packet(&SID, 5, &[b"e"]);
+        let out = sub.parse_packet(&pkt);
         assert!(out.gap.is_none());
         assert_eq!(out.messages[0].0, 5);
         assert_eq!(sub.last_seq(), Some(5));
@@ -359,14 +368,17 @@ mod tests {
     fn out_of_order_replay_does_not_rewind_or_gap() {
         let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
             .unwrap();
-        sub.parse_packet(&data_packet(&SID, 1, &[b"a", b"b", b"c"]));
+        let pkt = data_packet(&SID, 1, &[b"a", b"b", b"c"]);
+        sub.parse_packet(&pkt);
         // Replay of an old packet (seq 2) must not report a gap or move the watermark.
-        let out = sub.parse_packet(&data_packet(&SID, 2, &[b"b"]));
+        let pkt = data_packet(&SID, 2, &[b"b"]);
+        let out = sub.parse_packet(&pkt);
         assert!(out.gap.is_none());
         assert_eq!(out.messages[0].0, 2);
         assert_eq!(sub.last_seq(), Some(3), "watermark unchanged");
         // Duplicate of the whole range likewise.
-        let out = sub.parse_packet(&data_packet(&SID, 1, &[b"a", b"b", b"c"]));
+        let pkt = data_packet(&SID, 1, &[b"a", b"b", b"c"]);
+        let out = sub.parse_packet(&pkt);
         assert!(out.gap.is_none());
         assert_eq!(sub.last_seq(), Some(3));
     }
@@ -376,19 +388,22 @@ mod tests {
         let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
             .unwrap();
         // First-ever packet is a heartbeat advertising seq 10 => floor = 9.
-        let out = sub.parse_packet(&data_packet(&SID, 10, &[]));
+        let pkt = data_packet(&SID, 10, &[]);
+        let out = sub.parse_packet(&pkt);
         assert!(out.is_heartbeat);
         assert_eq!(sub.last_seq(), Some(9));
 
         // Heartbeat advertising seq 1 (no data yet) => floor stays unknown.
         let mut sub2 = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
             .unwrap();
-        let out = sub2.parse_packet(&data_packet(&SID, 1, &[]));
+        let pkt = data_packet(&SID, 1, &[]);
+        let out = sub2.parse_packet(&pkt);
         assert!(out.is_heartbeat);
         assert_eq!(sub2.last_seq(), None);
 
         // Heartbeat below the current watermark => floor does not go backwards.
-        let out = sub.parse_packet(&data_packet(&SID, 5, &[]));
+        let pkt = data_packet(&SID, 5, &[]);
+        let out = sub.parse_packet(&pkt);
         assert!(out.is_heartbeat);
         assert_eq!(sub.last_seq(), Some(9));
     }
@@ -397,9 +412,11 @@ mod tests {
     fn minimal_gap_and_many_messages() {
         let mut sub = MoldSubscriber::new_unicast("MATCH_RUST", "127.0.0.1:0".parse().unwrap(), None)
             .unwrap();
-        sub.parse_packet(&data_packet(&SID, 1, &[b"a"]));
+        let pkt = data_packet(&SID, 1, &[b"a"]);
+        sub.parse_packet(&pkt);
         // Smallest possible gap: expected 2, packet starts at 3.
-        let out = sub.parse_packet(&data_packet(&SID, 3, &[b"c"]));
+        let pkt = data_packet(&SID, 3, &[b"c"]);
+        let out = sub.parse_packet(&pkt);
         assert_eq!(out.gap.unwrap().lost, 1);
         assert_eq!(sub.last_seq(), Some(3));
 
@@ -433,8 +450,10 @@ mod tests {
             Some("127.0.0.1:9".parse().unwrap()),
         )
         .unwrap();
-        sub2.parse_packet(&data_packet(&SID, 1, &[b"a"])); // baseline, last=1
-        let out = sub2.parse_packet(&data_packet(&SID, 20, &[b"t"]));
+        let pkt = data_packet(&SID, 1, &[b"a"]);
+        sub2.parse_packet(&pkt); // baseline, last=1
+        let pkt = data_packet(&SID, 20, &[b"t"]);
+        let out = sub2.parse_packet(&pkt);
         let gap = sub2.auto_nak(&out, 5).unwrap().unwrap();
         assert_eq!(gap.lost, 18, "expected=2, first=20 => lost=18");
     }

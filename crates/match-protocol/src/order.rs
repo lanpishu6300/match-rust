@@ -1,5 +1,6 @@
 use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 /// Internal match-engine order aligned with Java `BBOrder`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,9 +12,10 @@ pub struct BbOrder {
     pub order_type: i8,
     pub market_id: i32,
     pub coin_id: i32,
-    pub symbol_key: String,
-    pub coin_market: String,
-    pub trust_order_no: String,
+    /// 内联短字符串：热路径零堆分配（symbol/coin_market/order_no 均 < 23B 栈内）。
+    pub symbol_key: SmolStr,
+    pub coin_market: SmolStr,
+    pub trust_order_no: SmolStr,
     pub order_form: i8,
     pub gear: Option<i32>,
     pub close_position: i8,

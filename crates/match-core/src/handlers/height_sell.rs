@@ -25,7 +25,7 @@ pub fn handle_height_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
 fn height_sell_loop(
     book: &mut OrderBook,
     order_form: i8,
-    order_no: String,
+    order_no: smol_str::SmolStr,
     trust_price: BigDecimal,
 ) -> Vec<MatchEvent> {
     let mut events = Vec::new();
@@ -38,7 +38,7 @@ fn height_sell_loop(
             if would_take {
                 push_revoke_if_present(
                     &mut events,
-                    revoke_by_no(book, &order_no, Side::Sell, "post_only"),
+                    revoke_by_no(book, order_no.as_str(), Side::Sell, "post_only"),
                 );
             }
             break;
@@ -50,7 +50,7 @@ fn height_sell_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Sell, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Sell, reason),
             );
             break;
         }
@@ -58,7 +58,7 @@ fn height_sell_loop(
             break;
         }
         // IOC fully filled — stop.
-        if order_form == ORDER_FORM_IOC && !book.contains_order_no(&order_no) {
+        if order_form == ORDER_FORM_IOC && !book.contains_order_no(order_no.as_str()) {
             break;
         }
         let best_sell = book.first(Side::Sell).unwrap();
@@ -66,7 +66,7 @@ fn height_sell_loop(
         if order_form == ORDER_FORM_IOC && best_sell.trust_order_no != order_no {
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Sell, "ioc_remainder"),
+                revoke_by_no(book, order_no.as_str(), Side::Sell, "ioc_remainder"),
             );
             break;
         }
@@ -77,7 +77,7 @@ fn height_sell_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Sell, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Sell, reason),
             );
             break;
         }

@@ -13,7 +13,7 @@
 //!   对端: python3 scripts/tap_udp_client.py <tap_mac> <orders>
 
 use match_core::{Engine, MatchEvent};
-use match_dpdk_io::dpdk::port::{rx_burst, setup_port, tx_frame};
+use match_dpdk_io::dpdk::port::{rx_burst, setup_port};
 use match_dpdk_io::dpdk::{eal_cleanup, eal_init, eth_stats_get, mbuf_pool, mtod, pkt_len, rte_mbuf};
 use match_protocol::{
     type_convert_spot, MqOrder, ORDER_FORM_LIMIT, ORDER_TYPE_BUY, ORDER_TYPE_SELL,
@@ -71,7 +71,10 @@ fn parse_order(payload: &[u8]) -> Option<(MqOrder, String)> {
     Some((mq_limit(side_i, symbol, &no, price, qty), no))
 }
 
-fn report_text(ev: &MatchEvent) -> (u8, Vec<u8>) {
+/// 把撮合事件编码进 `out`（复用缓冲，热路径零分配：`write!` 直写，无中间 String）。
+fn report_text(ev: &MatchEvent, out: &mut Vec<u8>) {
+    use std::io::Write as _;
+    out.clear();
     match ev {
         MatchEvent::Fill {
             taker_order_no,
@@ -79,16 +82,16 @@ fn report_text(ev: &MatchEvent) -> (u8, Vec<u8>) {
             price,
             qty,
             ..
-        } => (
-            REPORT_EXECUTED,
-            format!("E|{taker_order_no}|{maker_order_no}|{price}|{qty}").into_bytes(),
-        ),
+        } => {
+            out.push(REPORT_EXECUTED);
+            let _ = write!(out, "E|{taker_order_no}|{maker_order_no}|{price}|{qty}");
+        }
         MatchEvent::Revoke {
             order_no, symbol, ..
-        } => (
-            REPORT_ACCEPTED,
-            format!("A|{order_no}|{symbol}").into_bytes(),
-        ),
+        } => {
+            out.push(REPORT_ACCEPTED);
+            let _ = write!(out, "A|{order_no}|{symbol}");
+        }
     }
 }
 
@@ -147,36 +150,38 @@ unsafe fn parse_frame(m: *const rte_mbuf) -> Option<Frame> {
     })
 }
 
-/// 组回包：交换 mac/IP/端口，UDP 校验和置 0，IP 校验和重算
-fn build_reply(f: &Frame, payload: &[u8]) -> Vec<u8> {
+/// 直写 mbuf data room 组回包（零中间 Vec）：交换 mac/IP/端口，UDP 校验和置 0，
+/// IP 校验和重算后原位回填。相比 `build_reply`（组装 Vec）+ `tx_frame`（memcpy）
+/// 省掉整帧拷贝。⚠ Linux 环境验证（macOS 不可编译 match-dpdk-io）。
+unsafe fn tx_reply(port: u16, pool: *mut rte_mempool, f: &Frame, payload: &[u8]) -> Result<(), String> {
     let total = 14 + 20 + 8 + payload.len();
-    let mut b = Vec::with_capacity(total);
-    // Eth
-    b.extend_from_slice(&f.src_mac); // dst = 入包 src
-    b.extend_from_slice(&f.dst_mac); // src = 入包 dst（tap mac）
-    b.extend_from_slice(&[0x08, 0x00]);
-    // IPv4
-    b.push(0x45);
-    b.push(0);
-    // total-14 必须转 u16（usize::to_be_bytes() 是 8 字节，会写坏 IP 头）
-    b.extend_from_slice(&((total - 14) as u16).to_be_bytes());
-    b.extend_from_slice(&[0, 0, 0, 0]); // id, flags/frag
-    b.push(64); // ttl
-    b.push(17); // udp
-    b.extend_from_slice(&[0, 0]); // checksum 占位
-    b.extend_from_slice(&f.dst_ip); // src = 入包 dst
-    b.extend_from_slice(&f.src_ip); // dst = 入包 src
-    // IPv4 checksum (1's complement)
-    let ip_sum = checksum(&b[14..34]);
-    b[24] = (ip_sum >> 8) as u8;
-    b[25] = (ip_sum & 0xff) as u8;
-    // UDP
-    b.extend_from_slice(&f.dst_port.to_be_bytes());
-    b.extend_from_slice(&f.src_port.to_be_bytes());
-    b.extend_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
-    b.extend_from_slice(&[0, 0]); // checksum = 0（合法）
-    b.extend_from_slice(payload);
-    b
+    match_dpdk_io::dpdk::port::tx_frame_from(port, pool, total as u16, |b| {
+        // Eth
+        b[0..6].copy_from_slice(&f.src_mac); // dst = 入包 src
+        b[6..12].copy_from_slice(&f.dst_mac); // src = 入包 dst（tap mac）
+        b[12..14].copy_from_slice(&[0x08, 0x00]);
+        // IPv4（total-14 必须转 u16，usize::to_be_bytes() 是 8 字节会写坏 IP 头）
+        b[14] = 0x45;
+        b[15] = 0;
+        b[16..18].copy_from_slice(&((total - 14) as u16).to_be_bytes());
+        b[18..22].copy_from_slice(&[0, 0, 0, 0]); // id, flags/frag
+        b[22] = 64; // ttl
+        b[23] = 17; // udp
+        b[24..26].copy_from_slice(&[0, 0]); // checksum 占位
+        b[26..30].copy_from_slice(&f.dst_ip); // src = 入包 dst
+        b[30..34].copy_from_slice(&f.src_ip); // dst = 入包 src
+        // IPv4 checksum (1's complement) 原位回填
+        let ip_sum = checksum(&b[14..34]);
+        b[24] = (ip_sum >> 8) as u8;
+        b[25] = (ip_sum & 0xff) as u8;
+        // UDP
+        b[34..36].copy_from_slice(&f.dst_port.to_be_bytes());
+        b[36..38].copy_from_slice(&f.src_port.to_be_bytes());
+        b[38..40].copy_from_slice(&((8 + payload.len()) as u16).to_be_bytes());
+        b[40..42].copy_from_slice(&[0, 0]); // checksum = 0（合法）
+        b[42..42 + payload.len()].copy_from_slice(payload);
+        total
+    })
 }
 
 fn checksum(data: &[u8]) -> u16 {
@@ -239,6 +244,8 @@ fn main() -> Result<(), String> {
                     std::slice::from_raw_parts(mtod(m).add(f.payload_off), f.payload_len);
                 let (evs, outs) = srv.on_datagram(payload);
                 let mut replies: Vec<Vec<u8>> = Vec::new();
+                // 复用回报编码缓冲：report_text/write! 每次 clear 后重写，热路径零分配
+                let mut rp = Vec::with_capacity(64);
                 for ev in evs {
                     match ev {
                         ServerEvent::Hello(cid, last) => {
@@ -250,17 +257,12 @@ fn main() -> Result<(), String> {
                                 let evs2 = engine.on_order(bb);
                                 processed += 1;
                                 if evs2.is_empty() {
-                                    let text = format!("A|{no}|btcusdt");
-                                    let mut rp = Vec::with_capacity(1 + text.len());
-                                    rp.push(REPORT_ACCEPTED);
-                                    rp.extend_from_slice(text.as_bytes());
+                                    use std::io::Write as _;
+                                    let _ = write!(rp, "A|{no}|btcusdt");
                                     replies.extend(srv.ack_and_report(cli_seq, &rp));
                                 } else {
                                     for e in &evs2 {
-                                        let (rt, text) = report_text(e);
-                                        let mut rp = Vec::with_capacity(1 + text.len());
-                                        rp.push(rt);
-                                        rp.extend_from_slice(&text);
+                                        report_text(e, &mut rp);
                                         replies.extend(srv.ack_and_report(cli_seq, &rp));
                                     }
                                 }
@@ -279,8 +281,7 @@ fn main() -> Result<(), String> {
                     );
                 }
                 for out in outs.into_iter().chain(replies) {
-                    let frame = build_reply(&f, &out);
-                    if let Err(e) = tx_frame(port, pool, &frame) {
+                    if let Err(e) = tx_reply(port, pool, &f, &out) {
                         eprintln!("[dpdk] tx fail: {e}");
                     }
                 }

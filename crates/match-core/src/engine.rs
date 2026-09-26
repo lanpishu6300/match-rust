@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use smol_str::SmolStr;
 
 use bigdecimal::BigDecimal;
 use match_protocol::{
@@ -15,7 +16,7 @@ use crate::order::{BbOrder, Side};
 /// Per-symbol matching engine facade.
 #[derive(Debug, Default)]
 pub struct Engine {
-    books: HashMap<String, OrderBook>,
+    books: HashMap<SmolStr, OrderBook>,
 }
 
 impl Engine {

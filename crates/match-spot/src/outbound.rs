@@ -150,9 +150,9 @@ impl Outbound {
             } => {
                 telemetry::record_fill();
                 PushOrder {
-                    symbol_key: symbol.clone(),
-                    trust_order_no: taker_order_no.clone(),
-                    target_trust_order_no: Some(maker_order_no.clone()),
+                    symbol_key: symbol.to_string(),
+                    trust_order_no: taker_order_no.to_string(),
+                    target_trust_order_no: Some(maker_order_no.to_string()),
                     trust_price: price.clone(),
                     deal_price: Some(price.clone()),
                     remaining_number: taker_remaining.clone(),
@@ -172,8 +172,8 @@ impl Outbound {
             } => {
                 telemetry::record_order_cancelled();
                 PushOrder {
-                    symbol_key: symbol.clone(),
-                    trust_order_no: order_no.clone(),
+                    symbol_key: symbol.to_string(),
+                    trust_order_no: order_no.to_string(),
                     target_trust_order_no: None,
                     trust_price: "0".into(),
                     deal_price: None,

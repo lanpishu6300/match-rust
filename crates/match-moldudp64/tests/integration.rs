@@ -13,17 +13,18 @@ fn free_udp_port() -> u16 {
     s.local_addr().unwrap().port()
 }
 
-/// Drain `sub` for up to `timeout_ms`, returning all parsed outcomes.
+/// Drain `sub` for up to `timeout_ms`, returning all message payloads.
+/// （测试辅助：消息立即拷为 owned；0-copy 语义属于库 API）
 fn drain(
     sub: &mut MoldSubscriber,
     buf: &mut [u8],
     timeout_ms: u64,
-) -> Vec<match_moldudp64::ParseOutcome> {
+) -> Vec<(u64, Vec<u8>)> {
     let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
     let mut out = Vec::new();
     while std::time::Instant::now() < deadline {
         match sub.recv(buf).unwrap() {
-            Some(p) => out.push(p),
+            Some(p) => out.extend(p.messages.into_iter().map(|(seq, pl)| (seq, pl.to_vec()))),
             None => std::thread::sleep(Duration::from_millis(1)),
         }
         if out.len() >= 32 {
@@ -52,7 +53,7 @@ fn publisher_subscriber_unicast_roundtrip() {
     let mut buf = [0u8; 1500];
     let outs = drain(&mut sub, &mut buf, 500);
 
-    let msgs: Vec<(u64, Vec<u8>)> = outs.into_iter().flat_map(|o| o.messages).collect();
+    let msgs = outs;
     assert_eq!(msgs.len(), 5, "all five published messages arrive");
     for (i, (seq, payload)) in msgs.iter().enumerate() {
         assert_eq!(*seq, i as u64 + 1, "seq assigned consecutively from 1");
@@ -78,10 +79,19 @@ fn heartbeat_is_detected_and_syncs_seq() {
     pubr.send_heartbeat().unwrap();
 
     let mut buf = [0u8; 1500];
-    let outs = drain(&mut sub, &mut buf, 400);
-
-    let hb = outs.iter().find(|o| o.is_heartbeat).expect("heartbeat received");
-    assert_eq!(hb.msg_count, 0);
+    let mut hb_seen = false;
+    let deadline = std::time::Instant::now() + Duration::from_millis(400);
+    while std::time::Instant::now() < deadline {
+        if let Some(p) = sub.recv(&mut buf).unwrap() {
+            if p.is_heartbeat {
+                hb_seen = true;
+                break;
+            }
+        } else {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    assert!(hb_seen, "heartbeat received");
     // Publisher advertised next_seq == 2; subscriber synced floor to 1.
     assert_eq!(sub.last_seq(), Some(1));
 }
@@ -134,7 +144,7 @@ fn gap_detected_nak_sent_retransmit_fills_hole() {
 
     // Subscriber now receives the unicast replay 4..=6.
     let outs = drain(&mut sub, &mut buf, 500);
-    let replayed: Vec<(u64, Vec<u8>)> = outs.into_iter().flat_map(|o| o.messages).collect();
+    let replayed = outs;
     let seqs: Vec<u64> = replayed.iter().map(|(s, _)| *s).collect();
     assert!(seqs.contains(&4) && seqs.contains(&5) && seqs.contains(&6),
         "replay contains 4,5,6 — got {seqs:?}");
@@ -197,7 +207,7 @@ fn multicast_loopback_roundtrip() {
 
     let mut buf = [0u8; 1500];
     let outs = drain(&mut sub, &mut buf, 600);
-    let msgs: Vec<Vec<u8>> = outs.into_iter().flat_map(|o| o.messages.into_iter().map(|(_, p)| p)).collect();
+    let msgs: Vec<Vec<u8>> = outs.into_iter().map(|(_, p)| p).collect();
     assert_eq!(msgs, vec![b"mcast-1".to_vec(), b"mcast-2".to_vec()]);
 }
 
@@ -220,6 +230,5 @@ fn batch_publishing_packs_until_mtu() {
 
     let mut buf = [0u8; 1500];
     let outs = drain(&mut sub, &mut buf, 400);
-    let total: usize = outs.iter().map(|o| o.messages.len()).sum();
-    assert_eq!(total, 14);
+    assert_eq!(outs.len(), 14);
 }

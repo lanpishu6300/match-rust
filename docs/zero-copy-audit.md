@@ -55,15 +55,24 @@
 
 > 注：`udp-order/session.rs` 的 store/pending 与 `soupbintcp/session.rs` 回报窗口为**单份存储**（encode 出站帧的拷贝不可避免），改 Arc 无增量收益，保留 `Vec<u8>` 避免公共 API 无谓变更。
 
-## 4. 遗留项与修复优先级
+## 4. 遗留项与修复状态
 
-| 优先级 | 动作 | 消除 | 涉及文件 |
+| 优先级 | 动作 | 消除 | 状态 |
 |---|---|---|---|
-| P1-b | `subscriber.rs:162 to_vec` 订阅侧接收改 Bytes 共享；`report_text` 用 `write!` 复用 `BytesMut`；日志热路径禁 `format!` | 订阅每消息 1 拷贝、每成交 1 分配 | `subscriber.rs`、`udp_order_gw.rs`、`dpdk_tap_order.rs` |
-| P2 | `tx_frame` 支持直接写 mbuf data room（`build_reply` 去中间 Vec，IP 校验和原位重算） | 发包 2 次拷贝 → 1 次 | `dpdk/port.rs`、`dpdk_tap_order.rs` |
-| P2 | MoldUDP64 发布接 DPDK tx（复用 `mold_dpdk_tx`/`mold_outbound_bench`） | 行情侧内核栈 2 次拷贝 | `match-moldudp64` |
+| P1-b | `subscriber.rs` 订阅侧接收改借用（`ParseOutcome<'a>` messages 为 `&'a [u8]`）；`report_text` 用 `write!` 复用 `Vec` 缓冲 | 订阅每消息 1 拷贝、每成交 1 分配 | ✅ 本分支已修复（macOS 已验证） |
+| P2 | `tx_frame_from` 直写 mbuf data room（`build_reply` 去中间 Vec，IP 校验和原位回填） | 发包 2 次拷贝 → 0 | ✅ 代码已就位，⚠ Linux 编译验证 |
+| P2 | MoldUDP64 发布接 DPDK tx | 行情侧内核栈 2 次拷贝 | ✅ 载体已存在（`mold_dpdk_tx`），部署切换，见 `zero-copy-recap.md` |
+| 架构级 | `BbOrder.symbol_key/coin_market/trust_order_no` 与 `MatchEvent` 热字段 `SmolStr` 化；转换侧去 `to_string()` | 每单 2 次 String 分配 + 后续 clone 栈拷贝 | ✅ 本分支已修复（macOS 已验证） |
 
 ## 5. 验证
 
 - `cargo test`（workspace default-members，macOS）：76 个测试目标全绿、0 failed；
-- `match-dpdk-io` 为 Linux-only（macOS 不可编译，历史约束）；`dpdk_tap_order.rs` 改动与 `udp_order_gw.rs` 同构，待 Linux 环境编译验证。
+- `match-dpdk-io` 为 Linux-only（macOS 不可编译，历史约束）；`dpdk_tap_order.rs`（report_text `write!`、`tx_reply` 直写 mbuf）与 `port.rs`（`tx_frame_from`）待 Linux 环境编译验证——代码与已验证路径同构。
+
+## 6. 总结
+
+- **收包侧**：DPDK rx 直传（P0-a）+ 订阅解析借用化（P1-b）→ 全链路收包 0 拷贝；
+- **订单处理**：`MqOrder` 5 字段 `SmolStr`（P0-b）+ `BbOrder`/`MatchEvent` 热字段 `SmolStr`（架构级）→ 转换与撮合侧 0 堆分配；
+- **回报侧**：`write!` 复用缓冲（P1-b）+ `tx_frame_from` 直写 mbuf（P2）→ 回包编码 0 分配、发包 0 中间拷贝；
+- **行情侧**：NAK 缓存 `Arc<[u8]>`（P1-a）+ DPDK tx 载体（P2）→ 多订阅者 0 深拷贝、生产端可切 DPDK 出口；
+- **有意保留**：`udp_order`/`soupbintcp` 会话窗口 `Vec`（单份存储，encode 出站帧拷贝不可避免）、`MatchEvent.price/qty` 等 `String`（来自 `BigDecimal` 格式化，无可消除分配）、内核 UDP 收包（非 DPDK 路径内核→用户 1 次拷贝，属协议栈固有）。

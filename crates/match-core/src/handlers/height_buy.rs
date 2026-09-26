@@ -26,7 +26,7 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
 fn height_buy_loop(
     book: &mut OrderBook,
     order_form: i8,
-    order_no: String,
+    order_no: smol_str::SmolStr,
     trust_price: BigDecimal,
 ) -> Vec<MatchEvent> {
     // Java: `marketBuyHandler.handle(list)` is BaseHandler no-op — skipped.
@@ -41,7 +41,7 @@ fn height_buy_loop(
             if would_take {
                 push_revoke_if_present(
                     &mut events,
-                    revoke_by_no(book, &order_no, Side::Buy, "post_only"),
+                    revoke_by_no(book, order_no.as_str(), Side::Buy, "post_only"),
                 );
             }
             break;
@@ -53,7 +53,7 @@ fn height_buy_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, reason),
             );
             break;
         }
@@ -61,7 +61,7 @@ fn height_buy_loop(
             break;
         }
         // IOC fully filled — stop.
-        if order_form == ORDER_FORM_IOC && !book.contains_order_no(&order_no) {
+        if order_form == ORDER_FORM_IOC && !book.contains_order_no(order_no.as_str()) {
             break;
         }
         let best_buy = book.first(Side::Buy).unwrap();
@@ -69,7 +69,7 @@ fn height_buy_loop(
         if order_form == ORDER_FORM_IOC && best_buy.trust_order_no != order_no {
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, "ioc_remainder"),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, "ioc_remainder"),
             );
             break;
         }
@@ -79,7 +79,7 @@ fn height_buy_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, reason),
             );
             break;
         }

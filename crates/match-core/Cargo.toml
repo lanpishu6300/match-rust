@@ -9,6 +9,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)', 'cfg(coverage_
 
 [dependencies]
 match-protocol = { path = "../match-protocol" }
+smol_str = { version = "0.2", features = ["serde"] }
 bigdecimal = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

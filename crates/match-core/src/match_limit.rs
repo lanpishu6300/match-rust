@@ -30,7 +30,7 @@ pub(crate) fn fill_event(
     maker_status: i8,
 ) -> MatchEvent {
     MatchEvent::Fill {
-        symbol: symbol.to_string(),
+        symbol: symbol.into(),
         taker_order_no: taker.trust_order_no.clone(),
         maker_order_no: maker.trust_order_no.clone(),
         taker_user_type: taker.r#type,
