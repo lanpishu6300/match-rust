@@ -90,7 +90,7 @@ fn main() {
                 let mut fills = 0usize;
                 for bb in orders {
                     // move 语义（与 rss_shard_bench 一致），不计入 clone/深拷贝
-                    let evs: Vec<MatchEvent> = engine.on_order(bb);
+                    let evs = engine.on_order(bb);
                     n += 1;
                     for e in &evs {
                         if let MatchEvent::Fill { .. } = e { fills += 1; }

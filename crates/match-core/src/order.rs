@@ -128,6 +128,19 @@ impl BbOrder {
         o.order_form = 5;
         o
     }
+
+    /// Minimal key copy for `BTreeSet` removal — clones only the sort fields
+    /// (`trust_price` + `create_time` + `trust_order_no`), leaving the remaining
+    /// BigDecimal payload default. `compare_buy`/`compare_sell` order entries by
+    /// exactly these fields, so the key is `Ord`-equal to the resting entry.
+    pub(crate) fn removal_key(&self) -> BbOrder {
+        BbOrder(ProtocolBbOrder {
+            trust_price: self.trust_price.clone(),
+            create_time: self.create_time,
+            trust_order_no: self.trust_order_no.clone(),
+            ..Default::default()
+        })
+    }
 }
 
 /// Compare two buy orders for book ordering (mirrors Java `BBOrder.compareTo` for buys).

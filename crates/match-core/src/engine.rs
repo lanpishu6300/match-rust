@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use smol_str::SmolStr;
+use smallvec::SmallVec;
 
 use bigdecimal::BigDecimal;
 use match_protocol::{
@@ -25,7 +26,10 @@ impl Engine {
     }
 
     /// Accept an incoming order: revoke, market, height (PostOnly/IOC/FOK), or limit-match.
-    pub fn on_order(&mut self, order: BbOrder) -> Vec<MatchEvent> {
+    ///
+    /// Events are produced into a stack-inline buffer: fills per order are usually
+    /// ≤ 8, so the hot path avoids a heap allocation for the event list.
+    pub fn on_order(&mut self, order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
         let symbol = order.symbol_key.clone();
         let book = self.books.entry(symbol).or_default();
 
@@ -35,7 +39,7 @@ impl Engine {
 
         // Duplicate trust_order_no: reject silently (inbound should dedupe; surface via empty).
         if book.contains_order_no(&order.trust_order_no) {
-            return Vec::new();
+            return SmallVec::new();
         }
 
         if is_height_order_form(order.order_form) {
@@ -44,7 +48,7 @@ impl Engine {
                 Some(Side::Sell) => handle_height_sell(book, order),
                 None => {
                     rest_only(book, order);
-                    Vec::new()
+                    SmallVec::new()
                 }
             };
         }
@@ -55,7 +59,7 @@ impl Engine {
                 Some(Side::Sell) => handle_market_sell(book, order),
                 None => {
                     rest_only(book, order);
-                    Vec::new()
+                    SmallVec::new()
                 }
             };
         }
@@ -65,7 +69,7 @@ impl Engine {
             Some(Side::Sell) => handle_limit_sell(book, order),
             None => {
                 rest_only(book, order);
-                Vec::new()
+                SmallVec::new()
             }
         }
     }

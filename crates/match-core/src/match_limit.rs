@@ -4,6 +4,7 @@ use bigdecimal::{BigDecimal, Zero};
 use match_protocol::{
     ORDER_FORM_FOK, ORDER_STATUS_REVOKE, ORDER_STATUS_SUCCESS, ORDER_STATUS_SUCCESS_PART,
 };
+use smallvec::SmallVec;
 
 use crate::book::OrderBook;
 use crate::event::MatchEvent;
@@ -64,12 +65,12 @@ pub fn revoke_order_with_reason(
 }
 
 /// Java `BuyHandler` limit path: add to buy book, then match while buy.first >= sell.first.
-pub fn handle_limit_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
+pub fn handle_limit_buy(book: &mut OrderBook, order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
     with_inserted(book, order, match_limit_buy_loop)
 }
 
-fn match_limit_buy_loop(book: &mut OrderBook) -> Vec<MatchEvent> {
-    let mut events = Vec::new();
+fn match_limit_buy_loop(book: &mut OrderBook) -> SmallVec<[MatchEvent; 8]> {
+    let mut events = SmallVec::new();
     loop {
         // Split `||` so each side emptiness is an independent, testable branch.
         if book.is_empty(Side::Buy) {
@@ -93,7 +94,7 @@ fn match_limit_buy_loop(book: &mut OrderBook) -> Vec<MatchEvent> {
 
 /// Includes defensive `None` no-op; excluded so that dead arm is not scored.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn push_rather_than_buy(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
+fn push_rather_than_buy(book: &mut OrderBook, events: &mut SmallVec<[MatchEvent; 8]>) {
     if let Some(ev) = rather_than_buy(book) {
         events.push(ev);
     }
@@ -101,23 +102,23 @@ fn push_rather_than_buy(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
 
 /// Insert-or-reject wrapper; duplicate-id reject arm stays out of the branch gate.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn with_inserted<F>(book: &mut OrderBook, order: BbOrder, then: F) -> Vec<MatchEvent>
+fn with_inserted<F>(book: &mut OrderBook, order: BbOrder, then: F) -> SmallVec<[MatchEvent; 8]>
 where
-    F: FnOnce(&mut OrderBook) -> Vec<MatchEvent>,
+    F: FnOnce(&mut OrderBook) -> SmallVec<[MatchEvent; 8]>,
 {
     if !book.insert(order) {
-        return Vec::new();
+        return SmallVec::new();
     }
     then(book)
 }
 
 /// Java `SellHandler` limit path: add to sell book, then match while sell.first <= buy.first.
-pub fn handle_limit_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
+pub fn handle_limit_sell(book: &mut OrderBook, order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
     with_inserted(book, order, match_limit_sell_loop)
 }
 
-fn match_limit_sell_loop(book: &mut OrderBook) -> Vec<MatchEvent> {
-    let mut events = Vec::new();
+fn match_limit_sell_loop(book: &mut OrderBook) -> SmallVec<[MatchEvent; 8]> {
+    let mut events = SmallVec::new();
     loop {
         if book.is_empty(Side::Buy) {
             break;
@@ -139,7 +140,7 @@ fn match_limit_sell_loop(book: &mut OrderBook) -> Vec<MatchEvent> {
 
 /// Limit sell fill helper; defensive `None`/`Revoked` arms excluded from scoring.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn push_rather_than_sell_limit(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
+fn push_rather_than_sell_limit(book: &mut OrderBook, events: &mut SmallVec<[MatchEvent; 8]>) {
     match rather_than_sell(book) {
         RatherThanSellResult::Fill(ev) => events.push(ev),
         RatherThanSellResult::Revoked(ev) => events.push(ev),

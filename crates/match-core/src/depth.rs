@@ -3,8 +3,11 @@ use bigdecimal::{BigDecimal, Zero};
 use crate::order::BbOrder;
 
 /// Build up to `limit` price levels with qty aggregated per level (Java `NoDealProducer.getDepth`).
-pub fn depth_levels_from_orders(
-    orders: impl IntoIterator<Item = BbOrder>,
+///
+/// Iterates borrowed orders — the resting book is not deep-copied per level;
+/// only the two BigDecimal values pushed into the output levels are cloned.
+pub fn depth_levels_from_orders<'a>(
+    orders: impl IntoIterator<Item = &'a BbOrder>,
     limit: usize,
 ) -> Vec<(BigDecimal, BigDecimal)> {
     if limit == 0 {
@@ -61,7 +64,7 @@ mod tests {
             BbOrder::test_limit(Side::Buy, dec("100"), "2", 2, "2"),
             BbOrder::test_limit(Side::Buy, dec("99"), "3", 3, "1"),
         ];
-        let levels = depth_levels_from_orders(orders, 1);
+        let levels = depth_levels_from_orders(orders.iter(), 1);
         assert_eq!(levels.len(), 1);
         assert_eq!(levels[0].0, dec("100"));
         assert_eq!(levels[0].1, dec("3"));
@@ -71,14 +74,14 @@ mod tests {
     fn skips_zero_remaining() {
         let mut o = BbOrder::test_limit(Side::Buy, dec("100"), "1", 1, "1");
         o.remaining_number = BigDecimal::zero();
-        let levels = depth_levels_from_orders(vec![o], 20);
+        let levels = depth_levels_from_orders(vec![o].iter(), 20);
         assert!(levels.is_empty());
     }
 
     #[test]
     fn limit_zero_returns_empty() {
         let orders = vec![BbOrder::test_limit(Side::Buy, dec("100"), "1", 1, "1")];
-        assert!(depth_levels_from_orders(orders, 0).is_empty());
+        assert!(depth_levels_from_orders(orders.iter(), 0).is_empty());
     }
 
     #[test]
@@ -88,7 +91,7 @@ mod tests {
             BbOrder::test_limit(Side::Sell, dec("101"), "2", 2, "1"),
             BbOrder::test_limit(Side::Sell, dec("102"), "3", 3, "1"),
         ];
-        let levels = depth_levels_from_orders(orders, 2);
+        let levels = depth_levels_from_orders(orders.iter(), 2);
         assert_eq!(levels.len(), 2);
         assert_eq!(levels[0].0, dec("100"));
         assert_eq!(levels[1].0, dec("101"));

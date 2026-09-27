@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 /// Internal match-engine order aligned with Java `BBOrder`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BbOrder {
     pub user_id: i32,

@@ -2,6 +2,7 @@
 
 use bigdecimal::{BigDecimal, Zero};
 use match_protocol::{ORDER_STATUS_SUCCESS, ORDER_STATUS_SUCCESS_PART};
+use smallvec::{smallvec, SmallVec};
 
 use crate::book::OrderBook;
 use crate::event::MatchEvent;
@@ -10,19 +11,19 @@ use crate::order::{BbOrder, Side};
 use crate::price_utils::get_average_price;
 
 enum FokWalk {
-    Done(Vec<MatchEvent>),
+    Done(SmallVec<[MatchEvent; 8]>),
     Fail(MatchEvent),
 }
 
 /// Java `FokSellHandler.sellHandle`.
-pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
+pub(super) fn fok_sell_handle(book: &mut OrderBook) -> SmallVec<[MatchEvent; 8]> {
     let buy = match book.first(Side::Buy) {
         Some(o) => o.clone(),
-        None => return Vec::new(),
+        None => return SmallVec::new(),
     };
     let sell = match book.first(Side::Sell) {
         Some(o) => o.clone(),
-        None => return Vec::new(),
+        None => return SmallVec::new(),
     };
 
     let last_sell = remaining(&sell);
@@ -32,9 +33,9 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
 
     if last_sell > last_buy_for_cmp {
         let first_bb = sell.clone();
-        match fok_sell_walk(book, sell, first_bb, Vec::new(), Vec::new()) {
+        match fok_sell_walk(book, sell, first_bb, SmallVec::new(), Vec::new()) {
             FokWalk::Done(events) => events,
-            FokWalk::Fail(revoke) => vec![revoke],
+            FokWalk::Fail(revoke) => smallvec![revoke],
         }
     } else if last_sell == last_buy_for_cmp {
         book.remove_by_order_no(Side::Sell, &sell.trust_order_no);
@@ -51,7 +52,7 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
         sell.remaining_number = BigDecimal::zero();
         sell.consumer_all_number = sell.trust_number.clone();
         let deal_price = buy.trust_price.clone();
-        vec![fill_event(
+        smallvec![fill_event(
             &sell.symbol_key,
             &sell,
             &buy,
@@ -92,7 +93,7 @@ pub(super) fn fok_sell_handle(book: &mut OrderBook) -> Vec<MatchEvent> {
         sell.consumer_all_number = sell.trust_number.clone();
         let deal_price = buy.trust_price.clone();
         let maker_rem = buy.remaining_number.clone();
-        vec![fill_event(
+        smallvec![fill_event(
             &sell.symbol_key,
             &sell,
             &buy,
@@ -115,7 +116,7 @@ fn fok_sell_walk(
     book: &mut OrderBook,
     mut sell: BbOrder,
     first_bb: BbOrder,
-    mut events: Vec<MatchEvent>,
+    mut events: SmallVec<[MatchEvent; 8]>,
     mut buy_order_list: Vec<BbOrder>,
 ) -> FokWalk {
     let Some(buy_ref) = book.first(Side::Buy) else {
@@ -244,7 +245,7 @@ fn fok_price_gap_after_fills(
     book: &mut OrderBook,
     first_bb: &BbOrder,
     buy_order_list: Vec<BbOrder>,
-    events: Vec<MatchEvent>,
+    events: SmallVec<[MatchEvent; 8]>,
     sell: &BbOrder,
 ) -> FokWalk {
     if sell.remaining_number > BigDecimal::zero() {
@@ -281,7 +282,7 @@ mod tests {
         let sell = BbOrder::test_fok(Side::Sell, dec("100"), "s1", 1, "5");
         book.insert(sell.clone());
 
-        match fok_sell_walk(&mut book, sell.clone(), sell, Vec::new(), Vec::new()) {
+        match fok_sell_walk(&mut book, sell.clone(), sell, SmallVec::new(), Vec::new()) {
             FokWalk::Done(events) => assert!(events.is_empty()),
             FokWalk::Fail(_) => panic!("expected done without rollback"),
         }
@@ -292,7 +293,7 @@ mod tests {
         let mut book = OrderBook::new();
         let sell = BbOrder::test_fok(Side::Sell, dec("100"), "s1", 1, "1");
         book.insert(sell.clone());
-        match fok_sell_walk(&mut book, sell.clone(), sell, Vec::new(), Vec::new()) {
+        match fok_sell_walk(&mut book, sell.clone(), sell, SmallVec::new(), Vec::new()) {
             FokWalk::Fail(ev) => {
                 assert!(matches!(
                     ev,

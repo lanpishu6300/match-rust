@@ -62,7 +62,7 @@ fn shard_run(shard_id: usize, per_shard: usize) -> usize {
         let price = if i % 2 == 0 { "100.00" } else { "99.99" };
         let mq = mq_limit(side, &sym, &format!("s{shard_id}o{i}"), price, "1");
         let bb = BbOrder(type_convert_spot(&mq).expect("convert"));
-        let _evs: Vec<MatchEvent> = engine.on_order(bb);
+        let _evs = engine.on_order(bb);
         processed += 1;
     }
     processed
