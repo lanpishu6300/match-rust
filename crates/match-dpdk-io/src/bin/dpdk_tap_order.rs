@@ -14,7 +14,7 @@
 
 use match_core::{Engine, MatchEvent};
 use match_dpdk_io::dpdk::port::{rx_burst, setup_port};
-use match_dpdk_io::dpdk::{eal_cleanup, eal_init, eth_stats_get, mbuf_pool, mtod, pkt_len, rte_mbuf};
+use match_dpdk_io::dpdk::{eal_cleanup, eal_init, eth_stats_get, mbuf_pool, mtod, pkt_len, rte_mbuf, rte_mempool};
 use match_protocol::{
     type_convert_spot, MqOrder, ORDER_FORM_LIMIT, ORDER_TYPE_BUY, ORDER_TYPE_SELL,
 };
