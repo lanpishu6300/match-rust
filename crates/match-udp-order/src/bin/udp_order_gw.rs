@@ -97,7 +97,10 @@ fn parse_order(payload: &[u8]) -> Option<(MqOrder, String)> {
     Some((mq_limit(side_i, symbol, &no, price, qty), no))
 }
 
-fn report_text(ev: &MatchEvent) -> (u8, Vec<u8>) {
+/// 把撮合事件编码进 `out`（复用缓冲，热路径零分配：`write!` 直写，无中间 String）。
+fn report_text(ev: &MatchEvent, out: &mut Vec<u8>) {
+    use std::io::Write as _;
+    out.clear();
     match ev {
         MatchEvent::Fill {
             taker_order_no,
@@ -105,16 +108,16 @@ fn report_text(ev: &MatchEvent) -> (u8, Vec<u8>) {
             price,
             qty,
             ..
-        } => (
-            REPORT_EXECUTED,
-            format!("E|{taker_order_no}|{maker_order_no}|{price}|{qty}").into_bytes(),
-        ),
+        } => {
+            out.push(REPORT_EXECUTED);
+            let _ = write!(out, "E|{taker_order_no}|{maker_order_no}|{price}|{qty}");
+        }
         MatchEvent::Revoke {
             order_no, symbol, ..
-        } => (
-            REPORT_ACCEPTED,
-            format!("A|{order_no}|{symbol}").into_bytes(),
-        ),
+        } => {
+            out.push(REPORT_ACCEPTED);
+            let _ = write!(out, "A|{order_no}|{symbol}");
+        }
     }
 }
 
@@ -154,7 +157,9 @@ fn server_main(orders_target: usize, port: u16) -> std::io::Result<u64> {
                                 if processed < 10 {
                                     eprintln!("[s] ORDER seq={cli_seq}");
                                 }
-                                if let Some((mq, no)) = parse_order(&payload) {
+                                if let Some((mq, no)) = parse_order(payload) {
+                                    // 复用回报编码缓冲：report_text/write! 每次 clear 后重写，热路径零分配
+                                    let mut rp = Vec::with_capacity(64);
                                     let bb = match_core::BbOrder(
                                         type_convert_spot(&mq).expect("convert"),
                                     );
@@ -164,18 +169,13 @@ fn server_main(orders_target: usize, port: u16) -> std::io::Result<u64> {
                                         if matches!(e, MatchEvent::Fill { .. }) {
                                             fills += 1;
                                         }
-                                        let (rt, text) = report_text(e);
-                                        let mut rp = Vec::with_capacity(1 + text.len());
-                                        rp.push(rt);
-                                        rp.extend_from_slice(&text);
+                                        report_text(e, &mut rp);
                                         out_buf.extend(srv.ack_and_report(cli_seq, &rp));
                                     }
                                     if evs2.is_empty() {
                                         // 无成交也无撤销 → 挂单 Accepted
-                                        let text = format!("A|{no}|btcusdt");
-                                        let mut rp = Vec::with_capacity(1 + text.len());
-                                        rp.push(REPORT_ACCEPTED);
-                                        rp.extend_from_slice(text.as_bytes());
+                                        use std::io::Write as _;
+                                        let _ = write!(rp, "A|{no}|btcusdt");
                                         out_buf.extend(srv.ack_and_report(cli_seq, &rp));
                                     }
                                 } else {

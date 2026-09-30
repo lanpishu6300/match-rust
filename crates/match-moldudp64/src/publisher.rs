@@ -247,7 +247,7 @@ mod tests {
         let cache = p.shared_cache();
         let g = cache.lock().unwrap();
         let m = g.get(1).unwrap();
-        assert_eq!(m.payload, vec![MoldPublisher::TAG_FILL, b'p', b'a', b'y', b'l', b'o', b'a', b'd']);
+        assert_eq!(m.payload.as_ref(), &[MoldPublisher::TAG_FILL, b'p', b'a', b'y', b'l', b'o', b'a', b'd'][..]);
         assert_eq!(p.last_seq(), 1);
     }
 

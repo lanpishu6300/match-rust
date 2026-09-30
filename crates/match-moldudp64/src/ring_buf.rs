@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedMessage {
     pub seq: u64,
-    pub payload: Vec<u8>,
+    /// 共享消息体：NAK 重传 `clone` 变引用计数递增（多订阅者场景免深拷贝）。
+    pub payload: Arc<[u8]>,
 }
 
 #[derive(Debug, Default)]
@@ -46,7 +47,8 @@ impl MessageRingBuf {
     }
 
     /// Store a message, evicting the oldest on wrap. Sequence numbers are
-    /// expected to arrive in strictly increasing order.
+    /// expected to arrive in strictly increasing order. Payload is moved into
+    /// an `Arc<[u8]>`（一次分配，后续共享零拷贝）。
     pub fn push(&mut self, seq: u64, payload: Vec<u8>) {
         if self.slots[self.write_pos].is_some() {
             // Slot about to be overwritten: advance the low watermark.
@@ -62,7 +64,10 @@ impl MessageRingBuf {
                     .unwrap_or(evicted_seq + 1),
             );
         }
-        self.slots[self.write_pos] = Some(CachedMessage { seq, payload });
+        self.slots[self.write_pos] = Some(CachedMessage {
+            seq,
+            payload: Arc::from(payload),
+        });
         self.write_pos = (self.write_pos + 1) % self.capacity;
         self.base_seq = self.base_seq.or(Some(seq));
         self.first_seq = self.first_seq.or(Some(seq));

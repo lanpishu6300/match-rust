@@ -16,12 +16,15 @@ pub const REPORT_EXECUTED: u8 = 0x02;
 pub const REPORT_CANCELED: u8 = 0x03;
 pub const REPORT_REJECTED: u8 = 0x04;
 
+/// 服务端事件。`Order/Cancel/Replace` 的载荷**借用入站 datagram**（零拷贝），
+/// 只在 `on_datagram` 返回后、调用方处理该事件期间有效；跨调用保留需自行
+/// `to_vec`/共享引用（见 `docs/zero-copy-audit.md`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ServerEvent {
-    /// (client_seq, OUCH 消息字节)
-    Order(u32, Vec<u8>),
-    Cancel(u32, Vec<u8>),
-    Replace(u32, Vec<u8>),
+pub enum ServerEvent<'a> {
+    /// (client_seq, OUCH 消息字节，借用入站缓冲)
+    Order(u32, &'a [u8]),
+    Cancel(u32, &'a [u8]),
+    Replace(u32, &'a [u8]),
     /// NAK_REQUEST(start_seq, count) — 客户端回报缺口
     NakRequest(u32, u32),
     /// HELLO(client_id, last_report_seq)
@@ -29,10 +32,11 @@ pub enum ServerEvent {
     Heartbeat,
 }
 
+/// 客户端事件。`Report` 载荷借用入站 datagram（零拷贝），处理期间有效。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClientEvent {
-    /// (report_seq, payload = [report_type u8][OUCH 回报])
-    Report(u32, Vec<u8>),
+pub enum ClientEvent<'a> {
+    /// (report_seq, payload = [report_type u8][OUCH 回报]，借用入站缓冲)
+    Report(u32, &'a [u8]),
     /// (client_seq, result: ACK_OK / ACK_REJECT / ACK_RETRY)
     OrderAck(u32, u8),
     /// (server_last_report_seq, store_start, flags)
@@ -77,7 +81,9 @@ impl ServerSession {
 
     /// 处理一个入站 datagram。返回 (事件, 出站 datagrams)。
     /// 订单/撤单/改单只产生事件；回报由调用方通过 [`ack_and_report`] 生成。
-    pub fn on_datagram(&mut self, dg: &[u8]) -> (Vec<ServerEvent>, Vec<Vec<u8>>) {
+    /// `Order/Cancel/Replace` 事件载荷借用 `dg`（零拷贝），须在本调用返回后、
+    /// 下一次 `on_datagram` 之前消费完。
+    pub fn on_datagram<'a>(&mut self, dg: &'a [u8]) -> (Vec<ServerEvent<'a>>, Vec<Vec<u8>>) {
         let mut events = Vec::new();
         let mut out = Vec::new();
         let Some((h, payload)) = packet::decode(dg) else {
@@ -85,12 +91,13 @@ impl ServerSession {
         };
         match h.mtype {
             t::ORDER | t::CANCEL | t::REPLACE => {
+                // 零拷贝：事件携带借用切片，不再 to_vec。
                 let ev = if h.mtype == t::ORDER {
-                    ServerEvent::Order(h.seq, payload.to_vec())
+                    ServerEvent::Order(h.seq, payload)
                 } else if h.mtype == t::CANCEL {
-                    ServerEvent::Cancel(h.seq, payload.to_vec())
+                    ServerEvent::Cancel(h.seq, payload)
                 } else {
-                    ServerEvent::Replace(h.seq, payload.to_vec())
+                    ServerEvent::Replace(h.seq, payload)
                 };
                 let ack = if h.seq == self.expected_client_seq {
                     self.expected_client_seq = self.expected_client_seq.wrapping_add(1);
@@ -104,9 +111,9 @@ impl ServerSession {
                     if self.last_nak_start != Some(self.expected_client_seq) {
                         self.last_nak_start = Some(self.expected_client_seq);
                         let count = h.seq - self.expected_client_seq;
-                        let mut p = Vec::with_capacity(8);
-                        p.extend_from_slice(&self.expected_client_seq.to_be_bytes());
-                        p.extend_from_slice(&count.to_be_bytes());
+                        let mut p = [0u8; 8];
+                        p[..4].copy_from_slice(&self.expected_client_seq.to_be_bytes());
+                        p[4..].copy_from_slice(&count.to_be_bytes());
                         out.push(packet::encode(SESSION_MAGIC, 0, t::NAK_REQUEST, &p));
                     }
                     packet::ACK_RETRY
@@ -137,10 +144,10 @@ impl ServerSession {
                     } else {
                         0
                     };
-                    let mut p = Vec::with_capacity(13);
-                    p.extend_from_slice(&self.report_high_water().to_be_bytes());
-                    p.extend_from_slice(&self.store_start.to_be_bytes());
-                    p.push(flags);
+                    let mut p = [0u8; 13];
+                    p[..4].copy_from_slice(&self.report_high_water().to_be_bytes());
+                    p[4..8].copy_from_slice(&self.store_start.to_be_bytes());
+                    p[8] = flags;
                     out.push(packet::encode(SESSION_MAGIC, 0, t::HELLO_ACK, &p));
                 }
             }
@@ -260,22 +267,23 @@ impl ClientSession {
 
     /// 构造 NAK_REQUEST（回报缺口补帧请求）
     pub fn nak_request(&self, start: u32, count: u32) -> Vec<u8> {
-        let mut p = Vec::with_capacity(8);
-        p.extend_from_slice(&start.to_be_bytes());
-        p.extend_from_slice(&count.to_be_bytes());
+        let mut p = [0u8; 8];
+        p[..4].copy_from_slice(&start.to_be_bytes());
+        p[4..].copy_from_slice(&count.to_be_bytes());
         packet::encode(SESSION_MAGIC, 0, t::NAK_REQUEST, &p)
     }
 
     /// 重连：报出已收最高回报 seq。
     pub fn send_hello(&self, client_id: u32, last_report_seq: u32) -> Vec<u8> {
-        let mut p = Vec::with_capacity(8);
-        p.extend_from_slice(&client_id.to_be_bytes());
-        p.extend_from_slice(&last_report_seq.to_be_bytes());
+        let mut p = [0u8; 8];
+        p[..4].copy_from_slice(&client_id.to_be_bytes());
+        p[4..].copy_from_slice(&last_report_seq.to_be_bytes());
         packet::encode(SESSION_MAGIC, 0, t::HELLO, &p)
     }
 
     /// 处理一个入站 datagram。返回 (事件, 出站 datagrams)。
-    pub fn on_datagram(&mut self, dg: &[u8]) -> (Vec<ClientEvent>, Vec<Vec<u8>>) {
+    /// `Report` 事件载荷借用 `dg`（零拷贝），须在本调用返回后消费完。
+    pub fn on_datagram<'a>(&mut self, dg: &'a [u8]) -> (Vec<ClientEvent<'a>>, Vec<Vec<u8>>) {
         let mut events = Vec::new();
         let mut out = Vec::new();
         let Some((h, payload)) = packet::decode(dg) else {
@@ -285,13 +293,13 @@ impl ClientSession {
             t::REPORT => {
                 if h.seq == self.expected_report_seq {
                     self.expected_report_seq = self.expected_report_seq.wrapping_add(1);
-                    events.push(ClientEvent::Report(h.seq, payload.to_vec()));
+                    events.push(ClientEvent::Report(h.seq, payload));
                 } else if h.seq > self.expected_report_seq {
                     // 缺口 → NAK
                     let count = h.seq - self.expected_report_seq;
-                    let mut p = Vec::with_capacity(8);
-                    p.extend_from_slice(&self.expected_report_seq.to_be_bytes());
-                    p.extend_from_slice(&count.to_be_bytes());
+                    let mut p = [0u8; 8];
+                    p[..4].copy_from_slice(&self.expected_report_seq.to_be_bytes());
+                    p[4..].copy_from_slice(&count.to_be_bytes());
                     out.push(packet::encode(SESSION_MAGIC, 0, t::NAK_REQUEST, &p));
                 }
                 // seq < expected：重传重复，忽略
@@ -314,7 +322,8 @@ impl ClientSession {
                     if off + len > payload.len() {
                         break;
                     }
-                    let body = payload[off..off + len].to_vec();
+                    // 零拷贝：补帧载荷借用入站 datagram。
+                    let body = &payload[off..off + len];
                     off += len;
                     if seq == self.expected_report_seq {
                         self.expected_report_seq = self.expected_report_seq.wrapping_add(1);
@@ -363,7 +372,7 @@ mod tests {
     use super::*;
     use crate::packet::t;
 
-    fn drain_server(s: &mut ServerSession, dg: &[u8]) -> (Vec<ServerEvent>, Vec<Vec<u8>>) {
+    fn drain_server<'a>(s: &mut ServerSession, dg: &'a [u8]) -> (Vec<ServerEvent<'a>>, Vec<Vec<u8>>) {
         s.on_datagram(dg)
     }
 
@@ -373,7 +382,7 @@ mod tests {
         let mut cli = ClientSession::new();
         let order = cli.send_order(b"OUCH-ENTER-49B.........");
         let (evs, srv_out) = drain_server(&mut srv, &order);
-        assert_eq!(evs, vec![ServerEvent::Order(1, b"OUCH-ENTER-49B.........".to_vec())]);
+        assert!(matches!(&evs[0], ServerEvent::Order(1, p) if p == b"OUCH-ENTER-49B........."));
         // server 撮合后回报
         let srv_out2 = srv.ack_and_report(1, &[REPORT_ACCEPTED, b'a', b'c', b'c']);
         let mut all_out = srv_out.clone();

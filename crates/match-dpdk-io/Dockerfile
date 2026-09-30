@@ -42,6 +42,14 @@ COPY crates/match-dpdk-io/offline-assets/dpdk-headers/usr/include/ /usr/include/
 
 # --- build the dpdk bins (zero external crates: FFI is hand-written) ---
 WORKDIR /app
+
+# workspace member match-raft-fsm 依赖 sibling checkout `multiraft-fsm`
+# （path=../../../multiraft/crates/multiraft-fsm）。容器无该 checkout；
+# -p match-dpdk-io 只加载 manifest 不编译它，放一个最小占位即可满足 workspace 解析。
+RUN mkdir -p /multiraft/crates/multiraft-fsm/src \
+    && printf '[package]\nname = "multiraft-fsm"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n' > /multiraft/crates/multiraft-fsm/Cargo.toml \
+    && printf '// placeholder: manifest-load-only for offline workspace resolve\n' > /multiraft/crates/multiraft-fsm/src/lib.rs
+
 COPY . .
 RUN ls crates/match-dpdk-io/src/bin/ \
     && rm -rf offline-assets \

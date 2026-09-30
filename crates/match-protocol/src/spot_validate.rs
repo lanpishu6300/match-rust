@@ -3,10 +3,10 @@ use crate::spot_constants::{
     ORDER_STATUS, ORDER_TYPES, SPOT_ORDER_FORM_MARKET_PRICE, SPOT_ORDER_FORMS, SPOT_TYPES,
 };
 
-fn is_blank(value: &Option<String>) -> bool {
+fn is_blank<S: AsRef<str>>(value: &Option<S>) -> bool {
     match value {
         None => true,
-        Some(s) => s.trim().is_empty(),
+        Some(s) => s.as_ref().trim().is_empty(),
     }
 }
 

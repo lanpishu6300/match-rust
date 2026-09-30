@@ -149,7 +149,7 @@ impl SimplifiedOrder {
             ),
         };
 
-        order.symbol_key = self.symbol_key.clone();
+        order.symbol_key = self.symbol_key.clone().into();
         order.order_status = self.order_status;
         if let Some(gear) = self.gear {
             order.gear = Some(gear);
@@ -192,8 +192,8 @@ impl OutcomeEvent {
                 maker_status,
                 ..
             } => Self::Fill {
-                taker_order_no,
-                maker_order_no,
+                taker_order_no: taker_order_no.to_string(),
+                maker_order_no: maker_order_no.to_string(),
                 price,
                 qty,
                 taker_remaining,
@@ -207,7 +207,7 @@ impl OutcomeEvent {
                 reason,
                 ..
             } => Self::Revoke {
-                order_no,
+                order_no: order_no.to_string(),
                 remaining,
                 reason,
             },

@@ -119,7 +119,7 @@ fn shard_run(ring: Arc<SpscRing>, done: Arc<AtomicBool>) -> usize {
         let n = ring.pop_n(&mut batch, 64);
         if n > 0 {
             for bb in batch.drain(..) {
-                let _evs: Vec<MatchEvent> = engine.on_order(bb);
+                let _evs = engine.on_order(bb);
                 processed += 1;
             }
         } else if done.load(Ordering::Acquire) {
