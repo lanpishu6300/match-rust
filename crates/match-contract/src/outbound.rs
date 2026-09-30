@@ -93,12 +93,13 @@ impl Outbound {
                     maker_remaining,
                     taker_status,
                     maker_status,
+                    ..
                 } => {
                     telemetry::record_fill();
                     push_batch.push(PushOrder {
-                        symbol_key: symbol.clone(),
-                        trust_order_no: taker_order_no.clone(),
-                        target_trust_order_no: Some(maker_order_no.clone()),
+                        symbol_key: symbol.to_string(),
+                        trust_order_no: taker_order_no.to_string(),
+                        target_trust_order_no: Some(maker_order_no.to_string()),
                         trust_price: price.clone(),
                         deal_price: Some(price.clone()),
                         remaining_number: taker_remaining.clone(),
@@ -117,8 +118,8 @@ impl Outbound {
                 } => {
                     telemetry::record_order_cancelled();
                     push_batch.push(PushOrder {
-                        symbol_key: symbol.clone(),
-                        trust_order_no: order_no.clone(),
+                        symbol_key: symbol.to_string(),
+                        trust_order_no: order_no.to_string(),
                         target_trust_order_no: None,
                         trust_price: "0".into(),
                         deal_price: None,
@@ -386,8 +387,8 @@ fn now_ms() -> u64 {
 #[allow(dead_code)]
 pub fn push_from_bb_order(order: &BbOrder) -> PushOrder {
     PushOrder {
-        symbol_key: order.symbol_key.clone(),
-        trust_order_no: order.trust_order_no.clone(),
+        symbol_key: order.symbol_key.to_string(),
+        trust_order_no: order.trust_order_no.to_string(),
         target_trust_order_no: None,
         trust_price: order.trust_price.to_string(),
         deal_price: None,

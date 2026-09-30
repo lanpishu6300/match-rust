@@ -60,9 +60,9 @@ impl BbOrder {
             order_type: side.order_type(),
             market_id: 1,
             coin_id: 1,
-            symbol_key: "btcusdt".to_string(),
-            coin_market: "BTC/USDT".to_string(),
-            trust_order_no: trust_order_no.to_string(),
+            symbol_key: "btcusdt".into(),
+            coin_market: "BTC/USDT".into(),
+            trust_order_no: trust_order_no.into(),
             order_form: 1,
             gear: None,
             close_position: 1,
@@ -127,6 +127,19 @@ impl BbOrder {
         let mut o = Self::test_limit(side, price, trust_order_no, create_time, qty);
         o.order_form = 5;
         o
+    }
+
+    /// Minimal key copy for `BTreeSet` removal — clones only the sort fields
+    /// (`trust_price` + `create_time` + `trust_order_no`), leaving the remaining
+    /// BigDecimal payload default. `compare_buy`/`compare_sell` order entries by
+    /// exactly these fields, so the key is `Ord`-equal to the resting entry.
+    pub(crate) fn removal_key(&self) -> BbOrder {
+        BbOrder(ProtocolBbOrder {
+            trust_price: self.trust_price.clone(),
+            create_time: self.create_time,
+            trust_order_no: self.trust_order_no.clone(),
+            ..Default::default()
+        })
     }
 }
 

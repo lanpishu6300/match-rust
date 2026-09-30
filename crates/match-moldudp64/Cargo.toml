@@ -1,0 +1,13 @@
+[package]
+name = "match-moldudp64"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MoldUDP64 1.00 multicast market-data transport: publisher / subscriber / retransmit server"
+
+[dependencies]
+## DPDK backend is reserved for Linux production (mbuf zero-copy). macOS build
+## stays on the std UDP path; see docs/DPDK_INTEGRATION.md for the FFI plan.
+# dpdk = { path = "../match-dpdk-sys", optional = true }
+
+[dev-dependencies]

@@ -1,0 +1,3 @@
+<h3>12.9 请求 body 大小对比：DPDK vs TCP（2026-09-21，云 VM）</h3>
+<p>同一撮合引擎、同一机器（2 核 3GB），body padding 至 32/64/256/1024B（追加第 6 段，parse 忽略）对比：</p>
+<ul><li><b>DPDK（pcap 回放，处理侧延迟）</b>：全 body 档位 p50 1.0µs / p99 2.0µs 恒定，吞吐 229~252k/s（body 无关，240k/s@32B）</li><li><b>TCP（本机回环 127.0.0.1）</b>：ping 单笔 RTT p50 24µs / p99 42~52µs 恒定；batch 5000 吞吐 163k/s@32B → 198k/s@1024B（小 body 内核小包开销占比高，body 增大略升）</li><li><b>结论</b>：body 大小非瓶颈（两边均恒定）；延迟差距约 24×（1µs vs 24µs），吞吐差距 20~50%，根源为用户态路径 vs 内核穿越/唤醒；工具新增 <code>pcap_order_loopback.py gen</code> 第 5 参数 body_size 与 <code>tcp_order_bench --body N</code>（body padding 兼容 parse_order）</li></ul>

@@ -1,0 +1,29 @@
+<h2>11. TCP vs UDP 下单性能对比（同机同口径，2026-09-21）</h2>
+<p>用与 udp_order_gw 完全同一撮合链路的 TCP 行协议 bench（tcp_order_bench：TCP_NODELAY + 逐条回报 flush + match-core::Engine）在 macOS 回环同机对比。容器参考数据（Linux，soup_cmp_bench）一并列出。</p>
+<h3>11.1 批量吞吐（同机 macOS 回环，release）</h3>
+<table><thead><tr><th><p>订单量</p></th><th><p>TCP 批量</p></th><th><p>UDP 批量（match-udp-order）</p></th><th><p>倍率（TCP/UDP）</p></th></tr></thead><tbody>
+<tr><td><p>5,000</p></td><td><p>195.1k/s · 26ms</p></td><td><p>74.2k/s · 67ms</p></td><td><p>2.6×</p></td></tr>
+<tr><td><p>10,000</p></td><td><p>208.4k/s · 48ms</p></td><td><p>79.1k/s · 127ms</p></td><td><p>2.6×</p></td></tr>
+<tr><td><p>20,000</p></td><td><p>214.2k/s · 93ms</p></td><td><p>78.1k/s · 256ms</p></td><td><p>2.7×</p></td></tr>
+<tr><td><p>50,000</p></td><td><p>231.5k/s · 216ms</p></td><td><p>65.5k/s · 763ms</p></td><td><p>3.5×</p></td></tr>
+</tbody></table>
+<h3>11.2 单笔往返 RTT（同机 macOS 回环）</h3>
+<table><thead><tr><th><p>指标</p></th><th><p>TCP（tcp_order_bench --ping）</p></th><th><p>UDP（udp_order_gw --ping）</p></th></tr></thead><tbody>
+<tr><td><p>avg</p></td><td><p>58.4µs</p></td><td><p>173.8µs</p></td></tr>
+<tr><td><p>p50</p></td><td><p>54µs</p></td><td><p>169.5µs</p></td></tr>
+<tr><td><p>p99</p></td><td><p>141µs</p></td><td><p>255µs</p></td></tr>
+<tr><td><p>min</p></td><td><p>12µs</p></td><td><p>92µs</p></td></tr>
+</tbody></table>
+<h3>11.3 差异归因（诚实口径）</h3>
+<ul>
+<li>TCP 单笔 54µs 与容器（Linux）SoupBinTCP 单条 54.9µs、裸 TCP 53.9µs 高度一致——TCP 延迟跨平台稳定，协议/会话层开销约 1µs。</li>
+<li>UDP 单笔慢 3 倍：① demo 客户端是非阻塞忙轮询（WouldBlock 循环），TCP 是阻塞读（内核及时唤醒）；② UDP 会话层每笔产生 2 帧回报（ORDER_ACK + REPORT）并走 BTreeMap pending 状态机，TCP 行协议 1 行 1 回报；③ 回环下 UDP recv 多次 syscall。</li>
+<li>UDP 批量慢 2.6-3.5×：内核 UDP 逐 datagram syscall（每帧 1 send/1 recv）vs TCP 流式一次性 write_all + read_until 批读，syscall 摊销差 1 个量级。</li>
+<li>结论：在内核栈（macOS/常规 Linux）下 TCP 全面占优；私有 UDP 下单的价值不在内核路径，而在 DPDK 用户态（无 syscall、无 TCP 状态机/队头阻塞）——阶段 4 真机验证目标 5-12µs，届时才是 UDP 主场的有效对比。</li>
+<li>UDP 应用层可靠性有真实固定成本（每笔 ACK + 状态机），生产设计应按批量管线化（数据面连续处理 + 带外 NAK）而非单笔 RTT 导向。</li>
+</ul>
+<h3>11.4 相关文件与提交</h3>
+<ul>
+<li>bench：crates/match-udp-order/src/bin/tcp_order_bench.rs（--ping N / --batch N / --port）</li>
+<li>提交：a9aa666（perf/tier-sweep，已 push）</li>
+</ul>

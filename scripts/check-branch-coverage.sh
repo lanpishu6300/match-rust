@@ -5,9 +5,10 @@ export PATH="${HOME}/.cargo/bin:${PATH}"
 
 run_and_check() {
   local label="$1"
-  shift
+  local ignore_regex="$2"
+  shift 2
   local out
-  out="$(cargo +nightly llvm-cov "$@" --branch --ignore-filename-regex '(tests/|/bin/)' --summary-only 2>&1)" || {
+  out="$(cargo +nightly llvm-cov "$@" --branch --ignore-filename-regex "$ignore_regex" --summary-only 2>&1)" || {
     echo "$out"
     echo "llvm-cov failed: $label" >&2
     exit 1
@@ -23,5 +24,6 @@ run_and_check() {
   echo "OK: $label → 100% branches"
 }
 
-run_and_check "protocol+core+hp" -p match-protocol -p match-core -p match-core-hp
-run_and_check "core-hp+art" -p match-core-hp --features art
+run_and_check "protocol+core+hp" '(tests/|/bin/)' -p match-protocol -p match-core -p match-core-hp
+run_and_check "match-spot" '(tests/|main\.rs|/bin/)' -p match-spot
+run_and_check "core-hp+art" '(tests/|/bin/)' -p match-core-hp --features art

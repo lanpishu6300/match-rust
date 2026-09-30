@@ -196,7 +196,9 @@ Deploy suggestion: `match.engine.impl=java|rust`, `match.engine.symbols` whiteli
 
 ### 4.4 Spot Phase Two
 
-`match-spot` reuses `match-core`; protocol/Topics align with `java-spot-match` (including historical naming and sharding). Acceptance L1–L3 and cutover strategy mirror contract. Phase one does not cut spot production.
+`match-spot` reuses `match-core`; protocol/Topics align with `bf-match` / historical spot naming and sharding. Acceptance L1–L3 and cutover strategy mirror contract but use **shard** cutover units. Phase one does not cut spot production.
+
+**Detailed design:** [`2026-07-27-spot-match-shell-design.md`](./2026-07-27-spot-match-shell-design.md).
 
 ---
 
