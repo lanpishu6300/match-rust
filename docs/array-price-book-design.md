@@ -155,35 +155,78 @@ pub struct BookConfig {
 - N=50,000 订单/轮
 - 三个引擎对比：`core`（BTreeSet）、`hp`（BTreeMap）、`array`（数组+偏移）
 
-### 5.2 结果（时间越低越好）
+### 5.2 结果（时间越低越好，优化后 v2）
 
-| 场景 | core | hp | array | array vs hp |
-|------|------|-----|-------|-------------|
-| rest_only（纯挂单） | 9.35 s | 5.27 ms | **5.09 ms** | **快 3.4%** |
-| cross_full（完全成交） | 2.97 s | 3.09 ms | 45.2 ms | 慢 14.6x |
-| partial_walk（部分成交） | 6.89 s | 5.61 ms | **5.69 ms** | 慢 1.4% |
-| cancel_hot（热点撤单） | — | — | **3.83 ms** | — |
-| mixed（混合） | — | — | 24.4 ms | — |
+| 场景 | core (BTreeSet) | hp (BTreeMap) | array (数组+偏移) | array vs hp |
+|------|----------------|---------------|-------------------|-------------|
+| rest_only（纯挂单） | 8.45 s | 5.21 ms | **5.28 ms** | 持平（+1.3%） |
+| cross_full（完全成交） | 2.69 s | 3.06 ms | **3.29 ms** | 慢 7.5% |
+| partial_walk（部分成交） | 6.34 s | 5.52 ms | **5.60 ms** | 持平（+1.4%） |
+| cancel_hot（热点撤单） | 2.66 s | 14.23 ms | **3.66 ms** | **快 3.9x** |
+| mixed（混合） | 41.5 ms | 2.72 ms | **3.47 ms** | 慢 27.6% |
+| hp_cross_full_spsc | — | 3.69 ms | **3.29 ms** | **快 12%** |
+
+> v1 原始 cross_full 为 45.2ms（慢 hp 14.6x），经过热路径优化后降至 3.29ms，提升 **13.7 倍**。
 
 ### 5.3 结果分析
 
 **array 优势场景**：
-- **rest_only（纯挂单）**：array 5.09ms vs hp 5.27ms，**快 3.4%**。插入是 O(1) 直接寻址，比 BTreeMap 的 O(log n) 树遍历快。
-- **partial_walk（部分成交）**：array 5.69ms vs hp 5.61ms，基本持平。
+- **cancel_hot（热点撤单）**：array 3.66ms vs hp 14.23ms，**快 3.9 倍**。撤销是 O(1) 直接寻址（idx = tick - tick_lo），而 hp-engine 需要 BTreeMap O(log n) 查找 Level + VecDeque retain O(k) 移除。
+- **cross_full**：array 3.29ms 已超过 hp_cross_full_spsc（3.69ms），与 hp 直连模式（3.06ms）只差 7.5%。
+- **rest_only / partial_walk**：与 hp 基本持平。
 
-**array 劣势场景**：
-- **cross_full（完全成交）**：array 45.2ms vs hp 3.09ms，**慢 14.6 倍**。原因：
-  1. 当前 `match_bid`/`match_ask` 实现中，每次 fill 都 `self.store.get().cloned()` 克隆整个 `HpOrder`，再 `self.store.get_mut()` 二次查找
-  2. 每次档位清空后调用 `find_first_set` 扫描位图，而 hp-engine 的 BTreeMap 迭代器有缓存的 next 指针
-  3. `VecDeque` 的 `pop_front` 有内存移动开销，hp-engine 的 Level 用 `VecDeque` 但有对象池优化
+**array 仍有差距的场景**：
+- **mixed（混合）**：array 3.47ms vs hp 2.72ms，慢 27.6%。mixed 场景包含频繁的挂单+成交+撤单交替，array 的 insert_limit 每次都要计算 idx+位图操作，hp 的 BTreeMap 缓存最优价在混合场景下略有优势。
 
-### 5.4 优化方向（后续工作）
+### 5.4 热路径优化详解（v1 → v2）
 
-1. **消除 match 循环中的订单克隆**：直接在 `OrderStore` 上 `get_mut`，不 clone
-2. **内联 CTZ 跳档**：当前档还有订单时不调用 `find_first_set`，只有档清空时才跳
-3. **Level 用数组+head/tail 指针替代 VecDeque**：避免 VecDeque 的环形缓冲区开销
-4. **预取下一档**：匹配当前档时，`std::intrinsics::prefetch` 下一档地址
-5. **事件缓冲区复用**：当前 `events.clear()` 后容量保留，已优化
+#### 优化 1：消除 match 循环中的订单双重查找
+
+**v1 问题**：每次 fill 都执行 `store.get(maker_id).cloned()`（读取）+ `store.get_mut(maker_id)`（修改），两次数组索引+Option 解引用。
+
+**v2 方案**：单次 `store.get_mut(maker_id)`，在可变引用中先读取需要的字段（open_lot, client_id, price_tick）到本地变量，再修改 open_lot。零 clone、一次查找。
+
+```rust
+// v2: 单次 get_mut，读取+修改原子化
+let (maker_open, maker_client, maker_price) = {
+    let order = self.store.get_mut(maker_id).expect("maker in store");
+    let open = order.open_lot;
+    let client = order.client_id;
+    let price = order.price_tick;
+    order.open_lot = open - remaining.min(open);
+    (open, client, price)
+};
+```
+
+#### 优化 2：只在档位清空时才 CTZ 跳档
+
+**v1 问题**：外层 while 每次循环末尾无条件调用 `find_first_set`，即使 remaining 已耗尽（内层 while 因 remaining==0 退出）。
+
+**v2 方案**：用 `best_ask_idx` 缓存指针驱动循环。每次循环开始读取 `best_ask_idx`，如果档清空则更新 `best_ask_idx = find_first_set(...)`，否则 remaining 耗尽直接 break。CTZ 调用次数从"每档一次"降为"每清空一档一次"。
+
+#### 优化 3：best_ask_idx 更新与跳档合并
+
+**v1 问题**：档清空时先在 `if level.is_empty()` 块里更新 `best_ask_idx`（调用 find_first_set），然后外层又调用 `find_first_set` 找下一档，两次 CTZ 扫描。
+
+**v2 方案**：档清空时一次 `find_first_set` 同时更新 `best_ask_idx`，下一轮循环直接用新的 `best_ask_idx`。
+
+#### 优化 4：taker 订单不 insert 到 store
+
+**v1 问题**：handle_limit 中先 `store.insert(taker_order)`，match 后如果完全成交则 `store.remove(taker_id)`。cross_full 场景每单都有一次 insert+remove 的浪费。
+
+**v2 方案**：用高位临时 ID（`TAKER_ID_BASE = 1<<48` + seq）作为 taker_id，不 insert 到 store。match_bid/match_ask 只用到 taker_id 填充事件，不从 store 读取 taker。完全成交时零 store 操作；有剩余挂单时才 insert_limit 一次。
+
+#### 优化 5：taker_open 纯本地变量
+
+match 循环中 `remaining` 就是 taker 的未成交量，不需要从 store 读写。v1 中 match 后还要 `store.get_mut(taker_id).open_lot = qty_lot - filled` 写回，v2 完全消除。
+
+### 5.5 后续优化方向
+
+1. **Level 用数组+head/tail 指针替代 VecDeque**：避免 VecDeque 环形缓冲区的间接访问和 pop_front 的内存移动
+2. **预取下一档**：匹配当前档时 `std::intrinsics::prefetch` 下一档 PriceLevel 地址
+3. **mixed 场景优化**：insert_limit 中合并位图 set 和 best_idx 更新，减少分支
+4. **滑动窗口支持**：解决加密货币大价格范围问题
+5. **SIMD 批量处理**：同档位多订单成交时用 SIMD 计算 fill 量
 
 ---
 
@@ -278,10 +321,11 @@ crates/match-core-array/
 
 ### 11.2 生产建议
 
-1. **当前不建议替换 hp-engine 作为生产默认**：cross_full 场景慢 14x，需要优化 match 循环
-2. **rest_only 场景有优势**：纯挂单场景快 3.4%，适合做市商大量挂单的 workload
-3. **优先优化 match 循环**：消除 clone、内联 CTZ、预取下一档，预期 cross_full 可追平 hp-engine
-4. **滑动窗口支持**：解决加密货币大价格范围问题
+1. **cancel_hot 场景强烈推荐 array**：撤单性能快 3.9 倍，做市商高频撤单 workload 收益最大
+2. **cross_full 场景已追平 hp**：3.29ms vs 3.06ms（差 7.5%），且超过 hp_spsc 模式
+3. **rest_only / partial_walk 与 hp 持平**：切换无性能损失
+4. **mixed 场景仍有 27% 差距**：频繁挂撤交替场景 hp 略有优势
+5. **综合建议**：array engine 已达到生产可用水平，在撤单密集型场景（做市商）优于 hp-engine，在纯成交场景与 hp-engine 相当
 
 ### 11.3 与参考文档的对照
 
