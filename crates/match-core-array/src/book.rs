@@ -201,8 +201,8 @@ impl ArrayBook {
         Ok(order)
     }
 
-    /// 匹配限价买单（吃卖盘），返回成交事件数量。
-    /// 调用方需传入事件缓冲区。
+    /// 匹配限价买单（吃卖盘），返回成交数量。
+    /// 优化版：taker_open 本地变量、单次 store.get_mut、无 clone、只在档清空时 CTZ 跳档。
     pub fn match_bid(
         &mut self,
         price_tick: i64,
@@ -212,55 +212,67 @@ impl ArrayBook {
         events: &mut Vec<match_core_hp::HpEvent>,
     ) -> i64 {
         let mut remaining = qty_lot;
-        let mut cur_idx = match self.best_ask_idx {
-            Some(i) => i,
-            None => return 0,
-        };
-        let max_idx = self.config.tick_to_idx(price_tick).unwrap_or(self.config.level_count() - 1);
+        let max_idx = self
+            .config
+            .tick_to_idx(price_tick)
+            .unwrap_or(self.config.level_count() - 1);
+        let level_count = self.config.level_count();
 
-        while remaining > 0 && cur_idx <= max_idx {
-            let level = &mut self.asks[cur_idx];
-            while remaining > 0 && !level.is_empty() {
-                let maker_id = level.front_id().unwrap();
-                let maker = self.store.get(maker_id).cloned().unwrap();
-                let fill = remaining.min(maker.open_lot);
+        while remaining > 0 {
+            // 用缓存的 best_ask_idx 获取当前档，O(1) 整数读取
+            let cur_idx = match self.best_ask_idx {
+                Some(i) if i <= max_idx => i,
+                _ => break,
+            };
 
-                // 更新 maker 剩余量
-                let maker_order = self.store.get_mut(maker_id).unwrap();
-                maker_order.open_lot -= fill;
-                level.total_lot -= fill;
-                remaining -= fill;
-
-                events.push(match_core_hp::HpEvent::Fill {
-                    maker_id,
-                    taker_id,
-                    maker_client_id: maker.client_id,
-                    taker_client_id,
-                    price_tick: maker.price_tick,
-                    qty_lot: fill,
-                    maker_open_lot: maker.open_lot - fill,
-                    taker_open_lot: remaining,
-                });
-
-                if maker_order.open_lot == 0 {
-                    level.pop_front();
-                    self.store.remove(maker_id);
+            // 读取 maker_id（peek，不移除）
+            let maker_id = match self.asks[cur_idx].front_id() {
+                Some(id) => id,
+                None => {
+                    // 防御：档为空但位图标记非空，清理并重试
+                    clear_bit(&mut self.ask_bitmap, cur_idx);
+                    self.best_ask_idx = find_first_set(&self.ask_bitmap, cur_idx + 1, level_count);
+                    continue;
                 }
-            }
+            };
 
-            if level.is_empty() {
-                clear_bit(&mut self.ask_bitmap, cur_idx);
-                if cur_idx == self.best_ask_idx.unwrap_or(usize::MAX) {
+            // 单次 get_mut：读取需要的字段 + 修改 open_lot，无 clone
+            let (maker_open, maker_client, maker_price) = {
+                let order = self.store.get_mut(maker_id).expect("maker in store");
+                let open = order.open_lot;
+                let client = order.client_id;
+                let price = order.price_tick;
+                let fill = remaining.min(open);
+                order.open_lot = open - fill;
+                (open, client, price)
+            };
+
+            let fill = remaining.min(maker_open);
+            remaining -= fill;
+            self.asks[cur_idx].total_lot -= fill;
+
+            let maker_gone = maker_open <= fill;
+            if maker_gone {
+                self.asks[cur_idx].pop_front();
+                self.store.remove(maker_id);
+                // 档清空时才更新位图 + best_ask_idx（一次 CTZ）
+                if self.asks[cur_idx].is_empty() {
+                    clear_bit(&mut self.ask_bitmap, cur_idx);
                     self.best_ask_idx =
-                        find_first_set(&self.ask_bitmap, cur_idx + 1, self.config.level_count());
+                        find_first_set(&self.ask_bitmap, cur_idx + 1, level_count);
                 }
             }
 
-            // 找下一个非空卖档
-            match find_first_set(&self.ask_bitmap, cur_idx + 1, self.config.level_count()) {
-                Some(next) => cur_idx = next,
-                None => break,
-            }
+            events.push(match_core_hp::HpEvent::Fill {
+                maker_id,
+                taker_id,
+                maker_client_id: maker_client,
+                taker_client_id,
+                price_tick: maker_price,
+                qty_lot: fill,
+                maker_open_lot: if maker_gone { 0 } else { maker_open - fill },
+                taker_open_lot: remaining,
+            });
         }
         qty_lot - remaining
     }
@@ -275,55 +287,57 @@ impl ArrayBook {
         events: &mut Vec<match_core_hp::HpEvent>,
     ) -> i64 {
         let mut remaining = qty_lot;
-        let mut cur_idx = match self.best_bid_idx {
-            Some(i) => i,
-            None => return 0,
-        };
         let min_idx = self.config.tick_to_idx(price_tick).unwrap_or(0);
 
-        while remaining > 0 && cur_idx >= min_idx {
-            let level = &mut self.bids[cur_idx];
-            while remaining > 0 && !level.is_empty() {
-                let maker_id = level.front_id().unwrap();
-                let maker = self.store.get(maker_id).cloned().unwrap();
-                let fill = remaining.min(maker.open_lot);
+        while remaining > 0 {
+            let cur_idx = match self.best_bid_idx {
+                Some(i) if i >= min_idx => i,
+                _ => break,
+            };
 
-                let maker_order = self.store.get_mut(maker_id).unwrap();
-                maker_order.open_lot -= fill;
-                level.total_lot -= fill;
-                remaining -= fill;
-
-                events.push(match_core_hp::HpEvent::Fill {
-                    maker_id,
-                    taker_id,
-                    maker_client_id: maker.client_id,
-                    taker_client_id,
-                    price_tick: maker.price_tick,
-                    qty_lot: fill,
-                    maker_open_lot: maker.open_lot - fill,
-                    taker_open_lot: remaining,
-                });
-
-                if maker_order.open_lot == 0 {
-                    level.pop_front();
-                    self.store.remove(maker_id);
+            let maker_id = match self.bids[cur_idx].front_id() {
+                Some(id) => id,
+                None => {
+                    clear_bit(&mut self.bid_bitmap, cur_idx);
+                    self.best_bid_idx = find_last_set(&self.bid_bitmap, cur_idx.saturating_sub(1));
+                    continue;
                 }
-            }
+            };
 
-            if level.is_empty() {
-                clear_bit(&mut self.bid_bitmap, cur_idx);
-                if cur_idx == self.best_bid_idx.unwrap_or(usize::MAX) {
+            let (maker_open, maker_client, maker_price) = {
+                let order = self.store.get_mut(maker_id).expect("maker in store");
+                let open = order.open_lot;
+                let client = order.client_id;
+                let price = order.price_tick;
+                let fill = remaining.min(open);
+                order.open_lot = open - fill;
+                (open, client, price)
+            };
+
+            let fill = remaining.min(maker_open);
+            remaining -= fill;
+            self.bids[cur_idx].total_lot -= fill;
+
+            let maker_gone = maker_open <= fill;
+            if maker_gone {
+                self.bids[cur_idx].pop_front();
+                self.store.remove(maker_id);
+                if self.bids[cur_idx].is_empty() {
+                    clear_bit(&mut self.bid_bitmap, cur_idx);
                     self.best_bid_idx = find_last_set(&self.bid_bitmap, cur_idx.saturating_sub(1));
                 }
             }
 
-            if cur_idx == 0 {
-                break;
-            }
-            match find_last_set(&self.bid_bitmap, cur_idx - 1) {
-                Some(prev) => cur_idx = prev,
-                None => break,
-            }
+            events.push(match_core_hp::HpEvent::Fill {
+                maker_id,
+                taker_id,
+                maker_client_id: maker_client,
+                taker_client_id,
+                price_tick: maker_price,
+                qty_lot: fill,
+                maker_open_lot: if maker_gone { 0 } else { maker_open - fill },
+                taker_open_lot: remaining,
+            });
         }
         qty_lot - remaining
     }

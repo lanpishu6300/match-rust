@@ -8,6 +8,9 @@ use crate::types::{ArrayError, BookConfig};
 use match_core_hp::{HpCommand, HpEvent, HpOrder, Side};
 use rustc_hash::FxHashMap;
 
+/// 临时 taker ID 基址（高位区间，与 store slot id（从 1 开始的小整数）不冲突）。
+const TAKER_ID_BASE: u64 = 1u64 << 48;
+
 /// 数组+价格偏移撮合引擎。
 pub struct ArrayEngine {
     book: ArrayBook,
@@ -109,102 +112,38 @@ impl ArrayEngine {
         client_id: u64,
     ) -> Result<(), ArrayError> {
         let seq = self.next_seq();
-        // 先尝试吃对手盘
-        let filled = match side {
-            Side::Buy => {
-                // 买单吃卖盘：价格 >= 最优卖价时成交
-                if self.book.best_ask_tick().map_or(false, |ask| price_tick >= ask) {
-                    // 临时插入 taker 订单用于事件记录
-                    let taker_order = HpOrder {
-                        id: 0,
-                        side,
-                        price_tick,
-                        qty_lot,
-                        open_lot: qty_lot,
-                        ts: seq,
-                        client_id,
-                    };
-                    let taker_id = self.book.store_mut().insert(taker_order);
-                    let filled = self.book.match_bid(price_tick, qty_lot, taker_id, client_id, &mut self.events);
-                    // 更新 taker 剩余量
-                    if let Some(t) = self.book.store_mut().get_mut(taker_id) {
-                        t.open_lot = qty_lot - filled;
-                    }
-                    if filled < qty_lot {
-                        // 剩余挂单
-                        let remaining = qty_lot - filled;
-                        if let Some(t) = self.book.store_mut().get(taker_id) {
-                            let mut rest = t.clone();
-                            rest.open_lot = remaining;
-                            self.book.store_mut().remove(taker_id);
-                            let id = self.book.insert_limit(rest)?;
-                            self.client_to_ids.entry(client_id).or_default().push(id);
-                            self.events.push(HpEvent::Rest {
-                                id,
-                                client_id,
-                                side,
-                                price_tick,
-                                qty_lot: remaining,
-                            });
-                        }
-                    } else {
-                        self.book.store_mut().remove(taker_id);
-                    }
-                    filled
-                } else {
-                    0
-                }
-            }
-            Side::Sell => {
-                if self.book.best_bid_tick().map_or(false, |bid| price_tick <= bid) {
-                    let taker_order = HpOrder {
-                        id: 0,
-                        side,
-                        price_tick,
-                        qty_lot,
-                        open_lot: qty_lot,
-                        ts: seq,
-                        client_id,
-                    };
-                    let taker_id = self.book.store_mut().insert(taker_order);
-                    let filled = self.book.match_ask(price_tick, qty_lot, taker_id, client_id, &mut self.events);
-                    if let Some(t) = self.book.store_mut().get_mut(taker_id) {
-                        t.open_lot = qty_lot - filled;
-                    }
-                    if filled < qty_lot {
-                        let remaining = qty_lot - filled;
-                        if let Some(t) = self.book.store_mut().get(taker_id) {
-                            let mut rest = t.clone();
-                            rest.open_lot = remaining;
-                            self.book.store_mut().remove(taker_id);
-                            let id = self.book.insert_limit(rest)?;
-                            self.client_to_ids.entry(client_id).or_default().push(id);
-                            self.events.push(HpEvent::Rest {
-                                id,
-                                client_id,
-                                side,
-                                price_tick,
-                                qty_lot: remaining,
-                            });
-                        }
-                    } else {
-                        self.book.store_mut().remove(taker_id);
-                    }
-                    filled
-                } else {
-                    0
-                }
-            }
+
+        // 判断是否可吃对手盘
+        let can_cross = match side {
+            Side::Buy => self.book.best_ask_tick().map_or(false, |ask| price_tick >= ask),
+            Side::Sell => self.book.best_bid_tick().map_or(false, |bid| price_tick <= bid),
         };
 
-        // 如果完全没成交，直接挂单
-        if filled == 0 {
+        let remaining = if can_cross {
+            // 优化：taker 不 insert 到 store，用高位临时 ID（u64::MAX/2 以上区间，与 store slot id 不冲突）
+            // match_bid/match_ask 只用到 taker_id 填充事件，不从 store 读取 taker
+            let taker_id = TAKER_ID_BASE + seq;
+            let filled = match side {
+                Side::Buy => {
+                    self.book.match_bid(price_tick, qty_lot, taker_id, client_id, &mut self.events)
+                }
+                Side::Sell => {
+                    self.book.match_ask(price_tick, qty_lot, taker_id, client_id, &mut self.events)
+                }
+            };
+            qty_lot - filled
+        } else {
+            qty_lot
+        };
+
+        // 有剩余则挂单（cross_full 场景 remaining=0，跳过 insert，零开销）
+        if remaining > 0 {
             let order = HpOrder {
                 id: 0,
                 side,
                 price_tick,
                 qty_lot,
-                open_lot: qty_lot,
+                open_lot: remaining,
                 ts: seq,
                 client_id,
             };
@@ -215,7 +154,7 @@ impl ArrayEngine {
                 client_id,
                 side,
                 price_tick,
-                qty_lot,
+                qty_lot: remaining,
             });
         }
         Ok(())
@@ -239,7 +178,7 @@ impl ArrayEngine {
         &mut self,
         side: Side,
         qty_lot: i64,
-        max_fills: Option<u32>,
+        _max_fills: Option<u32>,
         client_id: u64,
     ) -> Result<(), ArrayError> {
         let seq = self.next_seq();
@@ -248,29 +187,13 @@ impl ArrayEngine {
             Side::Buy => self.book.config().tick_hi,
             Side::Sell => self.book.config().tick_lo,
         };
-        let taker_order = HpOrder {
-            id: 0,
-            side,
-            price_tick: cross_price,
-            qty_lot,
-            open_lot: qty_lot,
-            ts: seq,
-            client_id,
-        };
-        let taker_id = self.book.store_mut().insert(taker_order);
+        // 优化：taker 不 insert store，用临时 ID
+        let taker_id = TAKER_ID_BASE + seq;
 
         let filled = match side {
             Side::Buy => self.book.match_bid(cross_price, qty_lot, taker_id, client_id, &mut self.events),
             Side::Sell => self.book.match_ask(cross_price, qty_lot, taker_id, client_id, &mut self.events),
         };
-
-        // max_fills 限制：超过部分撤销（gear stop）
-        if let Some(max) = max_fills {
-            let fill_count = self.events.iter().filter(|e| matches!(e, HpEvent::Fill { .. })).count() as u32;
-            if fill_count > max {
-                // 撤销多余的成交（简化处理：实际应回滚，这里标记）
-            }
-        }
 
         // 市价单未成交部分自动撤销
         if filled < qty_lot {
@@ -280,7 +203,6 @@ impl ArrayEngine {
                 reason: 1, // market leftover
             });
         }
-        self.book.store_mut().remove(taker_id);
         Ok(())
     }
 }
