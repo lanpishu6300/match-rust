@@ -1,0 +1,19 @@
+[package]
+name = "match-core-array"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Array + price-offset matching engine (O(1) direct addressing, bitmap+CTZ, cache-friendly)"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)', 'cfg(coverage)'] }
+
+[dependencies]
+thiserror = { workspace = true }
+match-protocol = { path = "../match-protocol" }
+match-core-hp = { path = "../match-core-hp" }
+bigdecimal = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"

@@ -1,6 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use match_bench::workload;
 use match_core::Engine;
+use match_core_array::{ArrayEngine, BookConfig};
 use match_core_hp::{HpEngine, HpWorker};
 
 const N: usize = 50_000;
@@ -19,38 +20,51 @@ fn run_hp(cmds: &[match_core_hp::HpCommand]) {
     }
 }
 
+fn run_array(cmds: &[match_core_hp::HpCommand]) {
+    // 价格范围覆盖 workload 中的 tick（通常 0..=100000）
+    let config = BookConfig::new(0, 200_000).expect("config");
+    let mut eng = ArrayEngine::with_config(config, cmds.len() + 8);
+    for c in cmds {
+        let _ = eng.on_order(*c);
+    }
+}
+
 fn bench_rest_only(c: &mut Criterion) {
     let (core_orders, hp_cmds) = workload::rest_only(N);
     c.bench_function("core_rest_only", |b| b.iter(|| run_core(&core_orders)));
     c.bench_function("hp_rest_only", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_rest_only", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
 fn bench_cross_full(c: &mut Criterion) {
     let (core_orders, hp_cmds) = workload::cross_full(N);
     c.bench_function("core_cross_full", |b| b.iter(|| run_core(&core_orders)));
     c.bench_function("hp_cross_full", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_cross_full", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
 fn bench_partial_walk(c: &mut Criterion) {
     let (core_orders, hp_cmds) = workload::partial_walk(N);
     c.bench_function("core_partial_walk", |b| b.iter(|| run_core(&core_orders)));
     c.bench_function("hp_partial_walk", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_partial_walk", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
 fn bench_cancel_hot(c: &mut Criterion) {
     let (core_orders, hp_cmds) = workload::cancel_hot(N);
     c.bench_function("core_cancel_hot", |b| b.iter(|| run_core(&core_orders)));
     c.bench_function("hp_cancel_hot", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_cancel_hot", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
 fn bench_mixed(c: &mut Criterion) {
     let (core_orders, hp_cmds) = workload::mixed(N);
     c.bench_function("core_mixed", |b| b.iter(|| run_core(&core_orders)));
     c.bench_function("hp_mixed", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_mixed", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
 fn run_hp_spsc(cmds: &[match_core_hp::HpCommand]) {
-    // Ring large enough that same-thread submit never blocks.
     let mut w = HpWorker::new(cmds.len().next_power_of_two().max(1024));
     for c in cmds {
         w.try_submit(*c).expect("ring sized for full workload");

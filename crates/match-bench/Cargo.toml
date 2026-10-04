@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 match-core = { path = "../match-core" }
 match-core-hp = { path = "../match-core-hp" }
+match-core-array = { path = "../match-core-array" }
 match-protocol = { path = "../match-protocol" }
 bigdecimal = { workspace = true }
 clap = { workspace = true }

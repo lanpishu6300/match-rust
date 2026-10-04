@@ -5,6 +5,7 @@ members = [
   "crates/match-core",
   "crates/match-core-hp",
   "crates/match-raft-fsm",
+  "crates/match-core-array",
   "crates/match-bench",
   "crates/match-replay",
   "crates/match-contract",

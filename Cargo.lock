@@ -991,6 +991,7 @@ dependencies = [
  "clap",
  "criterion",
  "match-core",
+ "match-core-array",
  "match-core-hp",
  "match-protocol",
 ]
@@ -1024,6 +1025,18 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "tracing",
+]
+
+[[package]]
+name = "match-core-array"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "criterion",
+ "match-core-hp",
+ "match-protocol",
+ "rustc-hash",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
