@@ -23,10 +23,9 @@ pub struct ArrayEngine {
 }
 
 impl ArrayEngine {
-    /// 创建引擎，默认价格范围 0..=1_000_000 tick。
+    /// 创建引擎（动态滑动窗口，默认初始 512 档，最大 65536 档）。
     pub fn new() -> Self {
-        let config = BookConfig::new(0, 1_000_000).expect("default config valid");
-        Self::with_config(config, 4096)
+        Self::with_config(BookConfig::default(), 4096)
     }
 
     /// 带配置和预分配容量创建。
@@ -182,10 +181,10 @@ impl ArrayEngine {
         client_id: u64,
     ) -> Result<(), ArrayError> {
         let seq = self.next_seq();
-        // 市价单：用极端价格吃对手盘
+        // 市价单：用极端价格吃对手盘（动态窗口下，买单用 i64::MAX 吃所有卖盘，卖单用 i64::MIN 吃所有买盘）
         let cross_price = match side {
-            Side::Buy => self.book.config().tick_hi,
-            Side::Sell => self.book.config().tick_lo,
+            Side::Buy => i64::MAX,
+            Side::Sell => i64::MIN,
         };
         // 优化：taker 不 insert store，用临时 ID
         let taker_id = TAKER_ID_BASE + seq;
@@ -219,7 +218,7 @@ mod tests {
     use crate::types::BookConfig;
 
     fn engine() -> ArrayEngine {
-        ArrayEngine::with_config(BookConfig::new(0, 100000).unwrap(), 1024)
+        ArrayEngine::with_config(BookConfig::new(512, 65536).unwrap(), 1024)
     }
 
     #[test]
@@ -317,10 +316,20 @@ mod tests {
 
     #[test]
     fn price_out_of_range_rejected() {
-        let mut e = engine();
+        // 用极小 max_levels 配置，第二笔超出窗口上限
+        let mut e = ArrayEngine::with_config(BookConfig::new(4, 8).unwrap(), 64);
+        // 第一笔设定 base=100
+        e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 100,
+            qty_lot: 1,
+            ts: 0,
+            client_id: 1,
+        }).unwrap();
+        // 第二笔 tick=200，idx=100 > max_levels=8，应被拒绝
         let result = e.on_order(HpCommand::Limit {
             side: Side::Buy,
-            price_tick: 999999,
+            price_tick: 200,
             qty_lot: 1,
             ts: 0,
             client_id: 1,

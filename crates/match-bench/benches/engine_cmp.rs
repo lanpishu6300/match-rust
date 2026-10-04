@@ -21,8 +21,8 @@ fn run_hp(cmds: &[match_core_hp::HpCommand]) {
 }
 
 fn run_array(cmds: &[match_core_hp::HpCommand]) {
-    // 价格范围覆盖 workload 中的 tick（通常 0..=100000）
-    let config = BookConfig::new(0, 200_000).expect("config");
+    // 动态滑动窗口：初始 1024 档，最大 65536 档
+    let config = BookConfig::new(1024, 65536).expect("config");
     let mut eng = ArrayEngine::with_config(config, cmds.len() + 8);
     for c in cmds {
         let _ = eng.on_order(*c);
