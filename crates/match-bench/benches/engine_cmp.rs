@@ -64,6 +64,13 @@ fn bench_mixed(c: &mut Criterion) {
     c.bench_function("array_mixed", |b| b.iter(|| run_array(&hp_cmds)));
 }
 
+fn bench_wide_spread_cancel(c: &mut Criterion) {
+    let (core_orders, hp_cmds) = workload::wide_spread_cancel(N);
+    c.bench_function("core_wide_spread_cancel", |b| b.iter(|| run_core(&core_orders)));
+    c.bench_function("hp_wide_spread_cancel", |b| b.iter(|| run_hp(&hp_cmds)));
+    c.bench_function("array_wide_spread_cancel", |b| b.iter(|| run_array(&hp_cmds)));
+}
+
 fn run_hp_spsc(cmds: &[match_core_hp::HpCommand]) {
     let mut w = HpWorker::new(cmds.len().next_power_of_two().max(1024));
     for c in cmds {
@@ -90,6 +97,7 @@ criterion_group! {
         bench_partial_walk,
         bench_cancel_hot,
         bench_mixed,
+        bench_wide_spread_cancel,
         bench_hp_cross_full_spsc
 }
 criterion_main!(benches);

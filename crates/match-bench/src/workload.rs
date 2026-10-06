@@ -306,3 +306,45 @@ pub fn mixed(n: usize) -> (Vec<BbOrder>, Vec<HpCommand>) {
     }
     (core, hp)
 }
+
+/// Wide-spread high-cancel: 5000 active price levels, 80% cancel rate.
+///
+/// Simulates crypto market-maker order book: large price spread + frequent cancel/replace.
+/// BTreeMap k≈5000 (log2≈12), array sliding window ≈8192 levels (256KB, L2 cache).
+pub fn wide_spread_cancel(n: usize) -> (Vec<BbOrder>, Vec<HpCommand>) {
+    let rest_count = n.min(5000);
+    let cancel_count = (rest_count * 4) / 5;
+    let mut core = Vec::with_capacity(n);
+    let mut hp = Vec::with_capacity(n);
+
+    for i in 0..rest_count {
+        let price_tick = 10_000 + i as i64;
+        let price = format!("{}.{:02}", price_tick / 100, price_tick % 100);
+        let no = format!("w{i}");
+        core.push(BbOrder::test_limit(
+            core_side(true),
+            dec(&price),
+            &no,
+            i as i64,
+            "1",
+        ));
+        hp.push(HpCommand::Limit {
+            side: hp_side(true),
+            price_tick,
+            qty_lot: 1_000_000,
+            ts: i as u64,
+            client_id: i as u64,
+        });
+    }
+
+    for i in 0..cancel_count {
+        let t = (rest_count + i) as i64;
+        let no = format!("w{i}");
+        let mut rev = BbOrder::test_limit(core_side(true), dec("100.00"), &no, t, "1");
+        rev.order_status = ORDER_STATUS_REVOKE;
+        core.push(rev);
+        hp.push(HpCommand::Cancel { id: (i as u64) + 1 });
+    }
+
+    (core, hp)
+}
