@@ -91,3 +91,24 @@ This note maps well-known exchange / messaging / storage design ideas onto this 
 | Multi-thread writers on one book | Locks + false sharing |
 | Auto-grow a full ring | Hides latency spikes |
 | Sacrifice clean hot path for Java quirks | Dual-track: `match-core` owns equivalence |
+
+## client 语义（2026-09-21 修复）：支持每 client 多在途订单
+
+**原设计缺陷**：`client_to_id: FxHashMap<u64, u64>`（client → 唯一在途订单 slot），
+`on_limit`/`on_market` 开头 `contains_key` 即**静默丢弃**新单。真实撮合中一个 client
+（尤其做市/高频）同 symbol 多档挂单、多 symbol 各挂多单是常态——单在途语义会拦掉
+正常下单；静默丢弃无错误返回，生产上等于订单静默丢失。
+
+**修复后语义**：
+1. `client_to_id: FxHashMap<u64, Vec<u64>>`（client → 在途订单 id 列表），
+   rest 时 `entry(client_id).or_default().push(id)`；fully-fill / 被 taker 吃光 / cancel 时从列表移除。
+2. 去掉 `on_limit`/`on_market` 的单在途拦截——同 client 可在途多单（含自成交路径）。
+3. `Cancel`：主路径 = 显式订单 id（store slot，优先解析）；便利路径 = client_id → 撤该 client 全部在途单。
+
+**测试**：新增 `same_client_multi_resting_orders_allowed` / `cancel_by_order_id_removes_only_that_order` /
+`maker_fully_filled_clears_client_entry`；改写原 `duplicate_*_client_id_is_rejected` 两个集成测试为
+多在途语义。性能回归：hp_engine_bench 4sh 12.8M/s（云 VM 2 核），无回退。
+
+**已知边界**：订单 id = store slot（1-based），slot 会被复用（free list）——外部持有旧 slot
+长时间后再 Cancel 可能撤到新单。生产若用外部订单号引用，应在网关层维护 外部号 → slot 映射，
+或给 HpOrder 增加独立单调 id 字段。

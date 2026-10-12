@@ -196,7 +196,9 @@ Golden 期望值来自 **Java 参考跑数**，不是理想正确撮合。
 
 ### 4.4 现货二期
 
-`match-spot` 复用 `match-core`，协议/Topic 对齐 `java-spot-match`（含历史命名与分片）。验收 L1–L3 与切流策略镜像合约。一期不切现货生产。
+`match-spot` 复用 `match-core`；协议/Topic 对齐 `bf-match` / 现货历史命名与分片。验收 L1–L3 与切流策略对齐合约，但切流单元为 **分片**。一期不切现货生产。
+
+**详细设计：** [`2026-07-27-spot-match-shell-design.zh-CN.md`](./2026-07-27-spot-match-shell-design.zh-CN.md)。
 
 ---
 

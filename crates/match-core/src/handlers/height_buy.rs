@@ -2,6 +2,7 @@
 
 use bigdecimal::BigDecimal;
 use match_protocol::{ORDER_FORM_FOK, ORDER_FORM_IOC, ORDER_FORM_POST_ONLY};
+use smallvec::SmallVec;
 
 use crate::book::OrderBook;
 use crate::event::MatchEvent;
@@ -10,7 +11,7 @@ use crate::match_limit::{rather_than_buy, revoke_order_with_reason};
 use crate::order::{BbOrder, Side};
 
 /// Java `HeightBuyHandler.handle` for forms 3/4/5 (revoke handled in `Engine`).
-pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
+pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
     let order_form = order.order_form;
     let order_no = order.trust_order_no.clone();
     let trust_price = order.trust_price.clone();
@@ -26,12 +27,12 @@ pub fn handle_height_buy(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent
 fn height_buy_loop(
     book: &mut OrderBook,
     order_form: i8,
-    order_no: String,
+    order_no: smol_str::SmolStr,
     trust_price: BigDecimal,
-) -> Vec<MatchEvent> {
+) -> SmallVec<[MatchEvent; 8]> {
     // Java: `marketBuyHandler.handle(list)` is BaseHandler no-op — skipped.
 
-    let mut events = Vec::new();
+    let mut events = SmallVec::new();
     loop {
         if order_form == ORDER_FORM_POST_ONLY {
             // P2-2: already on book (Java also pushes depth via producer). Revoke if would take.
@@ -41,7 +42,7 @@ fn height_buy_loop(
             if would_take {
                 push_revoke_if_present(
                     &mut events,
-                    revoke_by_no(book, &order_no, Side::Buy, "post_only"),
+                    revoke_by_no(book, order_no.as_str(), Side::Buy, "post_only"),
                 );
             }
             break;
@@ -53,7 +54,7 @@ fn height_buy_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, reason),
             );
             break;
         }
@@ -61,7 +62,7 @@ fn height_buy_loop(
             break;
         }
         // IOC fully filled — stop.
-        if order_form == ORDER_FORM_IOC && !book.contains_order_no(&order_no) {
+        if order_form == ORDER_FORM_IOC && !book.contains_order_no(order_no.as_str()) {
             break;
         }
         let best_buy = book.first(Side::Buy).unwrap();
@@ -69,7 +70,7 @@ fn height_buy_loop(
         if order_form == ORDER_FORM_IOC && best_buy.trust_order_no != order_no {
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, "ioc_remainder"),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, "ioc_remainder"),
             );
             break;
         }
@@ -79,7 +80,7 @@ fn height_buy_loop(
             let reason = ioc_or_fok_reason(order_form);
             push_revoke_if_present(
                 &mut events,
-                revoke_by_no(book, &order_no, Side::Buy, reason),
+                revoke_by_no(book, order_no.as_str(), Side::Buy, reason),
             );
             break;
         }
@@ -97,7 +98,7 @@ fn height_buy_loop(
 
 /// Includes defensive `None` no-op from `rather_than_buy` (empty side despite checks).
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn push_rather_than_buy(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
+fn push_rather_than_buy(book: &mut OrderBook, events: &mut SmallVec<[MatchEvent; 8]>) {
     if let Some(ev) = rather_than_buy(book) {
         events.push(ev);
     }
@@ -105,12 +106,12 @@ fn push_rather_than_buy(book: &mut OrderBook, events: &mut Vec<MatchEvent>) {
 
 /// Insert-or-reject; duplicate-id reject arm stays out of the branch gate.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn with_inserted<F>(book: &mut OrderBook, order: BbOrder, then: F) -> Vec<MatchEvent>
+fn with_inserted<F>(book: &mut OrderBook, order: BbOrder, then: F) -> SmallVec<[MatchEvent; 8]>
 where
-    F: FnOnce(&mut OrderBook) -> Vec<MatchEvent>,
+    F: FnOnce(&mut OrderBook) -> SmallVec<[MatchEvent; 8]>,
 {
     if !book.insert(order) {
-        return Vec::new();
+        return SmallVec::new();
     }
     then(book)
 }
@@ -137,7 +138,7 @@ fn revoke_by_no(
 /// Revoke of an order we just inserted always succeeds; `None` arm is defensive
 /// (order missing after insert) — helper excluded so that dead arm is not scored.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn push_revoke_if_present(events: &mut Vec<MatchEvent>, ev: Option<MatchEvent>) {
+fn push_revoke_if_present(events: &mut SmallVec<[MatchEvent; 8]>, ev: Option<MatchEvent>) {
     if let Some(ev) = ev {
         events.push(ev);
     }

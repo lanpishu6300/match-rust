@@ -3,6 +3,7 @@
 
 use bigdecimal::BigDecimal;
 use match_protocol::ORDER_FORM_MARKET_PRICE;
+use smallvec::SmallVec;
 
 use crate::book::OrderBook;
 use crate::event::MatchEvent;
@@ -45,15 +46,15 @@ fn revoke_by_no(
 /// order-no stop edges even when both arms execute; behavior covered by
 /// `l1_market_*` integration tests.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchEvent> {
+pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
     order.trust_price = BigDecimal::from(MARKET_BUY_TRUST_PRICE);
     let gear = gear_of(&order);
     let order_no = order.trust_order_no.clone();
     if !book.insert(order) {
-        return Vec::new();
+        return SmallVec::new();
     }
 
-    let mut events = Vec::new();
+    let mut events = SmallVec::new();
     let mut fill_count: i32 = 0;
     loop {
         if book.is_empty(Side::Buy) {
@@ -112,14 +113,14 @@ pub fn handle_market_buy(book: &mut OrderBook, mut order: BbOrder) -> Vec<MatchE
 /// Excluded from branch scoring for the same LLVM sticky-counter reason as
 /// [`handle_market_buy`]; behavior covered by `l1_market_*` tests.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-pub fn handle_market_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEvent> {
+pub fn handle_market_sell(book: &mut OrderBook, order: BbOrder) -> SmallVec<[MatchEvent; 8]> {
     let gear = gear_of(&order);
     let order_no = order.trust_order_no.clone();
     if !book.insert(order) {
-        return Vec::new();
+        return SmallVec::new();
     }
 
-    let mut events = Vec::new();
+    let mut events = SmallVec::new();
     let mut fill_count: i32 = 0;
     loop {
         if book.is_empty(Side::Sell) {
@@ -165,7 +166,7 @@ pub fn handle_market_sell(book: &mut OrderBook, order: BbOrder) -> Vec<MatchEven
 
 /// Applies one `rather_than_sell` step. `Revoked`/`None` are unreachable for market form.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn market_sell_fill_delta(book: &mut OrderBook, events: &mut Vec<MatchEvent>) -> i32 {
+fn market_sell_fill_delta(book: &mut OrderBook, events: &mut SmallVec<[MatchEvent; 8]>) -> i32 {
     match rather_than_sell(book) {
         RatherThanSellResult::Fill(ev) => {
             events.push(ev);
@@ -182,7 +183,7 @@ fn market_sell_fill_delta(book: &mut OrderBook, events: &mut Vec<MatchEvent>) ->
 
 /// Revoke of the resting market order usually succeeds; `None` is defensive.
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
-fn push_revoke_if_present(events: &mut Vec<MatchEvent>, ev: Option<MatchEvent>) {
+fn push_revoke_if_present(events: &mut SmallVec<[MatchEvent; 8]>, ev: Option<MatchEvent>) {
     if let Some(ev) = ev {
         events.push(ev);
     }
@@ -203,7 +204,7 @@ fn market_sell_not_our_order(best_sell: &BbOrder, order_no: &str) -> bool {
 #[cfg_attr(any(coverage, coverage_nightly), coverage(off))]
 fn market_gear_stop(
     book: &mut OrderBook,
-    events: &mut Vec<MatchEvent>,
+    events: &mut SmallVec<[MatchEvent; 8]>,
     order_no: &str,
     side: Side,
     fill_count: i32,

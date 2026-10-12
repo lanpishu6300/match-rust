@@ -80,9 +80,10 @@ impl OrderBook {
     }
 
     pub fn remove(&mut self, order: &BbOrder) -> bool {
+        let key = order.removal_key();
         match Side::from_order_type(order.order_type) {
-            Some(Side::Buy) => self.buys.remove(&BuyEntry(order.clone())),
-            Some(Side::Sell) => self.sells.remove(&SellEntry(order.clone())),
+            Some(Side::Buy) => self.buys.take(&BuyEntry(key)).is_some(),
+            Some(Side::Sell) => self.sells.take(&SellEntry(key)).is_some(),
             None => false,
         }
     }
@@ -107,27 +108,28 @@ impl OrderBook {
     }
 
     /// Find and remove an order by `trust_order_no` (Java revoke lookup).
+    ///
+    /// Only the sort fields (`price`/`time`/`order_no`) are cloned into the removal
+    /// key — the full BigDecimal payload of the resting order is moved out, not copied.
     pub fn remove_by_order_no(&mut self, side: Side, order_no: &str) -> Option<BbOrder> {
         match side {
             Side::Buy => {
-                let key = self
+                let found = self
                     .buys
                     .iter()
-                    .find(|entry| entry.0.trust_order_no == order_no)?
-                    .clone();
-                // After find+clone of the same Ord key, BTreeSet::remove cannot fail
-                // under BuyEntry Ord/Eq consistency — discard the bool.
-                let _ = self.buys.remove(&key);
-                Some(key.0)
+                    .find(|entry| entry.0.trust_order_no == order_no)?;
+                let key = found.0.removal_key();
+                // Ord-equal key ⇒ BTreeSet::take finds the same entry (O(log n)); the
+                // entry's order is moved out. `None` is unreachable under Ord/Eq consistency.
+                self.buys.take(&BuyEntry(key)).map(|entry| entry.0)
             }
             Side::Sell => {
-                let key = self
+                let found = self
                     .sells
                     .iter()
-                    .find(|entry| entry.0.trust_order_no == order_no)?
-                    .clone();
-                let _ = self.sells.remove(&key);
-                Some(key.0)
+                    .find(|entry| entry.0.trust_order_no == order_no)?;
+                let key = found.0.removal_key();
+                self.sells.take(&SellEntry(key)).map(|entry| entry.0)
             }
         }
     }
@@ -140,10 +142,19 @@ impl OrderBook {
     }
 
     /// Depth snapshot: up to `limit` price levels with qty aggregated per level.
+    /// Borrows resting orders — no per-level deep copy of the order payload.
     pub fn depth_levels(&self, side: Side, limit: usize) -> Vec<(BigDecimal, BigDecimal)> {
         match side {
-            Side::Buy => depth_levels_from_orders(self.buys.iter().map(|e| e.0.clone()), limit),
-            Side::Sell => depth_levels_from_orders(self.sells.iter().map(|e| e.0.clone()), limit),
+            Side::Buy => depth_levels_from_orders(self.buys.iter().map(|e| &e.0), limit),
+            Side::Sell => depth_levels_from_orders(self.sells.iter().map(|e| &e.0), limit),
+        }
+    }
+
+    /// Resting orders in book sort order (price-time priority).
+    pub fn resting_orders(&self, side: Side) -> Vec<BbOrder> {
+        match side {
+            Side::Buy => self.buys.iter().map(|e| e.0.clone()).collect(),
+            Side::Sell => self.sells.iter().map(|e| e.0.clone()).collect(),
         }
     }
 }

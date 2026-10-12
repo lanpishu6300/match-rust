@@ -86,10 +86,10 @@ impl StartQueueState {
             return false;
         }
 
-        if let Some(set) = map.get(&order.symbol_key) {
-            if set.contains(&order.trust_order_no) {
+        if let Some(set) = map.get(order.symbol_key.as_str()) {
+            if set.contains(order.trust_order_no.as_str()) {
                 debug!(
-                    symbol = %order.symbol_key,
+                    symbol = %order.symbol_key.as_str(),
                     order_no = %order.trust_order_no,
                     "startup dedupe: restored order no"
                 );
@@ -221,7 +221,7 @@ impl InboundRouter {
         let symbol = order.symbol_key.clone();
         let tx = {
             let queues = self.queues.lock().expect("queues lock");
-            queues.get(&symbol).cloned()
+            queues.get(symbol.as_str()).cloned()
         };
         match tx {
             Some(tx) => tx.try_send(order).map_err(|e| match e {
@@ -236,7 +236,7 @@ impl InboundRouter {
                     order_no = %order.trust_order_no,
                     "symbol queue missing"
                 );
-                Err(InboundError::MissingQueue(symbol))
+                Err(InboundError::MissingQueue(symbol.to_string()))
             }
         }
     }

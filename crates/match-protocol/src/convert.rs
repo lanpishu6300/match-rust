@@ -15,11 +15,12 @@ fn parse_decimal(value: &str) -> Option<BigDecimal> {
 /// Does not invent defaults for `uid` / `lever_times` (Java builder takes primitives and would NPE
 /// on null). `gear` is preserved as `Option` so limit orders may omit it.
 pub fn type_convert(mq_order: &MqOrder) -> Option<BbOrder> {
-    let symbol_key = mq_order
+    let symbol_key: smol_str::SmolStr = mq_order
         .symbol_key
         .as_ref()?
         .replace('/', "")
-        .to_lowercase();
+        .to_lowercase()
+        .into();
 
     let trust_number = parse_decimal(mq_order.trust_number.as_ref()?)?;
     let trust_price = parse_decimal(mq_order.trust_price.as_ref()?)?;

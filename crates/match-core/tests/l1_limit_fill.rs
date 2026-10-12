@@ -16,11 +16,13 @@ fn limit_buy_fully_fills_resting_sell() {
         .filter(|e| matches!(e, MatchEvent::Fill { .. }))
         .collect();
     assert_eq!(fills.len(), 1);
-    if let MatchEvent::Fill {
+        if let MatchEvent::Fill {
         price,
         qty,
         taker_remaining,
         maker_remaining,
+        taker_user_type,
+        maker_user_type,
         ..
     } = &fills[0]
     {
@@ -28,6 +30,8 @@ fn limit_buy_fully_fills_resting_sell() {
         assert_eq!(qty, "1");
         assert_eq!(taker_remaining, "0");
         assert_eq!(maker_remaining, "0");
+        assert_eq!(*taker_user_type, 1);
+        assert_eq!(*maker_user_type, 1);
     }
     assert!(eng.depth_levels("btcusdt", Side::Buy, 20).is_empty());
     assert!(eng.depth_levels("btcusdt", Side::Sell, 20).is_empty());

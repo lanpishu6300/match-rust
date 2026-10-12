@@ -9,7 +9,7 @@ Status is indicative; designs live under `docs/specs/`.
 | **M0 – Done** | Workspace, dual-track HP, fair_compare, Apache packaging, coverage gate |
 | **M1 – Near** | Live RocketMQ adapter; fill e2e-budget measurements |
 | **M2** | Per-symbol grey cutover runbook execution; L3 shadow on test env |
-| **M3** | Spot shell beyond stub; optional production opt-in for hp (feature-flagged) |
+| **M3** | Spot shell beyond stub — see [M5 design](../../specs/2026-07-27-spot-match-shell-design.md); optional production opt-in for hp (feature-flagged) |
 | **M4** | Hardening: WAL replay (if adopted), ops runbooks, more language packs |
 
 Out of scope for now: full Aeron IPC, FPGA, replacing account/liquidation services.

@@ -1,0 +1,55 @@
+<h2>10. 私有 UDP 下单（match-udp-order，阶段 1+3）</h2>
+<p>MoldUDP64 是组播行情侧的可靠 UDP 协议；下单侧若要同样走无 TCP 栈的 DPDK 全链路，需要一套"UDP 版的 SoupBinTCP"——这就是 match-udp-order：私有 UDP 下单会话层（阶段 1）+ 撮核接入网关 udp_order_gw（阶段 3）。可靠性语义对齐 MoldUDP64：入站/出站双向 seq、ACK、NAK 补帧、HELLO 水位重连，全部在应用层实现，UDP 丢失不丢单、不重复、不乱序。</p>
+<h3>10.1 为什么用 UDP 下单（与 SoupBinTCP 的关系）</h3>
+<ul>
+<li>SoupBinTCP 是 TCP 之上的轻量会话层（登录/序列号/心跳/快照），承载 OUCH 下单报文——TCP 栈意味着 3 次握手、内核拥塞控制、ACK 反压，DPDK 无法绕过。</li>
+<li>私有 UDP 下单：9 字节帧头 + 应用层可靠性，可整链路跑在 DPDK（PMD 收发包），把下单通道从内核 TCP 栈彻底剥离，是"行情 MoldUDP64 + 下单 UDP"双 UDP 的 DPDK 全链路形态。</li>
+<li>定位：阶段 1+3 先落地会话层与撮核接入并完成回环验证；阶段 2（策略线程）与阶段 4（Linux 真机 NIC）后续推进。</li>
+</ul>
+<h3>10.2 帧格式与消息集</h3>
+<p>统一帧头 9 字节（无 length 字段——UDP 天然是消息边界）：session u32BE | seq u32BE | type u8。session=0x4D4F4F52（"MOOR"）。</p>
+<table><thead><tr><th><p>方向</p></th><th><p>type</p></th><th><p>含义</p></th></tr></thead><tbody>
+<tr><td><p>client→server</p></td><td><p>HELLO</p></td><td><p>登录/重连，携带 client_id + last_report_seq（水位）</p></td></tr>
+<tr><td><p>client→server</p></td><td><p>ORDER / CANCEL / REPLACE</p></td><td><p>下单/撤单/改单，入站 seq 严格递增</p></td></tr>
+<tr><td><p>client→server</p></td><td><p>NAK_REQUEST</p></td><td><p>回报缺口补帧请求 [start u32][count u32]</p></td></tr>
+<tr><td><p>client→server</p></td><td><p>HEARTBEAT</p></td><td><p>保活</p></td></tr>
+<tr><td><p>server→client</p></td><td><p>HELLO_ACK</p></td><td><p>回执 + server 回报水位 + store_start + GAP_TOO_OLD 标志（水位过旧需全量重建）</p></td></tr>
+<tr><td><p>server→client</p></td><td><p>ORDER_ACK</p></td><td><p>入站确认 [client_seq u32][result u8]：ACK_OK / ACK_RETRY（乱序）/ ACK_DUP（重复，幂等）</p></td></tr>
+<tr><td><p>server→client</p></td><td><p>REPORT</p></td><td><p>回报（ACCEPTED / EXECUTED / REJECTED），出站 seq 严格递增</p></td></tr>
+<tr><td><p>server→client</p></td><td><p>NAK_RESPONSE</p></td><td><p>补帧 [start][count] + count × [seq u32][len u16][payload]</p></td></tr>
+</tbody></table>
+<h3>10.3 会话语义（可靠性设计）</h3>
+<ul>
+<li>下单入站：server 校验 seq——等于期望值则受理并回 ORDER_ACK(OK)；小于期望值为重复（重发/重连）回 ACK_DUP 幂等；大于期望值回 ACK_RETRY 提示 client 重发。</li>
+<li>回报出站：server 端 report seq 按序递增，写进重传窗口（默认 8192，超窗 evict 后靠 HELLO GAP_TOO_OLD 全量重建）；client 收到缺口自动发 NAK_REQUEST，server 从窗口补帧。</li>
+<li>client 侧：pending 未 ACK 窗口 + 2s 超时重发（seq 幂等，不会重复撮合）；回报停滞 200ms 无新帧时主动 NAK(exp, 256) 兜底尾部缺口。</li>
+<li>重连：HELLO 带 last_report_seq 水位，server 回 store_start 与 GAP_TOO_OLD——水位在窗口内则增量补帧，过旧则 client 全量重建。</li>
+</ul>
+<h3>10.4 端到端网关（udp_order_gw）</h3>
+<p>crates/match-udp-order/src/bin/udp_order_gw.rs：UDP ServerSession 收到订单 → MqOrder → BbOrder → match-core::Engine::on_order → 撮合结果编成 REPORT（EXECUTED= E|taker|maker|price|qty / ACCEPTED= A|order_no|symbol）。订单 payload 例：B|btcusdt|100.00|1|o123。参数：udp_order_gw [orders] [--nak-test] [--ping N] [--port N]。已修复的关键 bug：HELLO_ACK 水位取错（应报 report_high_water）、ACK/REPORT 时序错位、控制帧被订单队列尾部阻塞（NAK/重发改为立即发送）、server 优雅关闭窗口（达标后 3s 收尾）、macOS UDP 内核 buffer 默认 ~786KB 导致 8k+ 回报突发溢出丢包（setsockopt SO_RCVBUF/SO_SNDBUF 4MB）、NAK_RESPONSE 超 4096B 被接收 buf 截断（接收 buf 放大到 64KB）。</p>
+<h3>10.5 实测性能矩阵（macOS 回环，release，2026-09-20）</h3>
+<table><thead><tr><th><p>订单量</p></th><th><p>吞吐</p></th><th><p>耗时</p></th><th><p>回报交付</p></th><th><p>成交</p></th><th><p>NAK 次数</p></th></tr></thead><tbody>
+<tr><td><p>5,000</p></td><td><p>81.5k/s</p></td><td><p>61ms</p></td><td><p>100%（5000/5000）</p></td><td><p>2500</p></td><td><p>0</p></td></tr>
+<tr><td><p>10,000</p></td><td><p>82.3k/s</p></td><td><p>122ms</p></td><td><p>100%</p></td><td><p>5000</p></td><td><p>0</p></td></tr>
+<tr><td><p>20,000</p></td><td><p>86.3k/s</p></td><td><p>232ms</p></td><td><p>100%</p></td><td><p>10000</p></td><td><p>0</p></td></tr>
+<tr><td><p>50,000</p></td><td><p>82.3k/s</p></td><td><p>607ms</p></td><td><p>100%</p></td><td><p>25000</p></td><td><p>0</p></td></tr>
+</tbody></table>
+<p>单笔端到端 RTT（--ping，500 轮）：avg 178.5µs，p50 175.2µs，p99 255.7µs，min 93µs。口径：macOS 回环 + 内核 UDP 栈 + 应用层会话 + Engine 撮合全链路，含 50ms 收包轮询窗口；DPDK 阶段（阶段 4）目标将同链路压到 5–12µs（参考已固化数据：DPDK rx 123ns / 出站批量 1722万 msg/s）。</p>
+<h3>10.6 故障注入（--nak-test）</h3>
+<p>--nak-test 模拟真实丢包：client 侧故意丢弃 seq=1 的回报，验证 NAK 补帧闭环。实测 5,000 笔：2.3s 内 100% 收敛（2160/s），REPORT 缺口由 NAK_REQUEST → NAK_RESPONSE 补帧补齐，无丢单、无重复成交。收敛路径：正常流触发小 NAK（每次 1 条）+ 回报停滞 200ms 触发大 NAK(exp, 256) 兜底。</p>
+<h3>10.7 与 SoupBinTCP 下单通道的取舍</h3>
+<table><thead><tr><th><p>维度</p></th><th><p>SoupBinTCP（TCP）</p></th><th><p>match-udp-order（UDP）</p></th></tr></thead><tbody>
+<tr><td><p>传输层</p></td><td><p>内核 TCP 栈</p></td><td><p>UDP + 应用层可靠性</p></td></tr>
+<tr><td><p>DPDK 适配</p></td><td><p>不可（无 TCP 栈）</p></td><td><p>可（整链路 PMD）</p></td></tr>
+<tr><td><p>会话</p></td><td><p>登录/心跳/快照/重连</p></td><td><p>HELLO 水位/ACK/NAK/停滞兜底</p></td></tr>
+<tr><td><p>丢包恢复</p></td><td><p>TCP 重传（内核）</p></td><td><p>NAK 补帧 + 超时重发（应用层）</p></td></tr>
+<tr><td><p>回环实测</p></td><td><p>裸 TCP 53.9µs / 单条 54.9µs / batch100 p50 2.6µs</p></td><td><p>单笔 RTT p50 175µs（含 50ms 轮询窗）</p></td></tr>
+<tr><td><p>适用</p></td><td><p>外部客户接入（公网/标准合规）</p></td><td><p>做市/高频内部链路（同机房、DPDK）</p></td></tr>
+</tbody></table>
+<h3>10.8 相关文件</h3>
+<ul>
+<li>协议：crates/match-udp-order/src/{packet,session}.rs（10/10 单测绿）</li>
+<li>网关：crates/match-udp-order/src/bin/udp_order_gw.rs</li>
+<li>提交：ef5d107（perf/tier-sweep，已 push）</li>
+<li>复用依赖：match-soupbintcp（会话帧/OUCH 字段）、match-core（Engine）、match-protocol（MqOrder/BbOrder 转换）</li>
+</ul>

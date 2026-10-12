@@ -33,8 +33,9 @@ mod defensive {
 pub struct HpEngine {
     pub book: Book,
     events: Vec<HpEvent>,
-    /// External order id → store slot (resting / open orders).
-    client_to_id: FxHashMap<u64, u64>,
+    /// client_id → resting order id list（每 client 支持多在途订单）。
+    /// 仅在订单 rest 期间维护；fully-fill / cancel / 被 taker 吃光时移除对应项。
+    client_to_id: FxHashMap<u64, Vec<u64>>,
 }
 
 impl HpEngine {
@@ -54,7 +55,7 @@ impl HpEngine {
         }
     }
 
-    /// Number of live external-id → slot mappings.
+    /// Number of clients that currently have at least one resting order.
     pub fn client_map_len(&self) -> usize {
         self.client_to_id.len()
     }
@@ -83,31 +84,41 @@ impl HpEngine {
     }
 
     fn on_cancel(&mut self, id: u64) {
-        // Resolve slot: external client_id first, else treat as store slot.
-        let slot = self.client_to_id.remove(&id).unwrap_or(id);
-        let client_id = self
-            .book
-            .store()
-            .get(slot)
-            .map(|o| o.client_id)
-            .unwrap_or(id);
-        if self.book.cancel(slot) {
-            // O(1): drop any remaining map entry (cancel-by-slot path).
-            self.client_to_id.remove(&client_id);
-            self.events.push(HpEvent::Revoke {
-                id: slot,
-                client_id,
-                reason: 0,
-            });
+        // 主路径：id = 显式订单 id（store slot）。slot 优先解析，避免与 client 号混淆。
+        if let Some(o) = self.book.store().get(id) {
+            let client_id = o.client_id;
+            if self.book.cancel(id) {
+                if let Some(list) = self.client_to_id.get_mut(&client_id) {
+                    list.retain(|&x| x != id);
+                    if list.is_empty() {
+                        self.client_to_id.remove(&client_id);
+                    }
+                }
+                self.events.push(HpEvent::Revoke {
+                    id,
+                    client_id,
+                    reason: 0,
+                });
+            }
+            return;
+        }
+        // 便利路径：id = client_id → 撤销该 client 全部在途订单。
+        if let Some(list) = self.client_to_id.remove(&id) {
+            for slot in list {
+                if self.book.cancel(slot) {
+                    self.events.push(HpEvent::Revoke {
+                        id: slot,
+                        client_id: id,
+                        reason: 0,
+                    });
+                }
+            }
         }
     }
 
     #[cfg_attr(coverage_nightly, inline(never))]
     fn on_limit(&mut self, side: Side, price_tick: i64, qty_lot: i64, ts: u64, client_id: u64) {
         if qty_lot <= 0 {
-            return;
-        }
-        if self.client_to_id.contains_key(&client_id) {
             return;
         }
         let order = HpOrder {
@@ -130,7 +141,7 @@ impl HpEngine {
 
         if remaining > 0 {
             // Cancel lookup only needed while the order remains on the book.
-            self.client_to_id.insert(client_id, taker_id);
+            self.client_to_id.entry(client_id).or_default().push(taker_id);
             self.book.rest(taker_id);
             self.events.push(HpEvent::Rest {
                 id: taker_id,
@@ -154,9 +165,6 @@ impl HpEngine {
         client_id: u64,
     ) {
         if qty_lot <= 0 {
-            return;
-        }
-        if self.client_to_id.contains_key(&client_id) {
             return;
         }
         let order = HpOrder {
@@ -237,7 +245,12 @@ impl HpEngine {
                 taker_open_lot: taker_open,
             });
             if maker_gone && maker_client != 0 {
-                self.client_to_id.remove(&maker_client);
+                if let Some(list) = self.client_to_id.get_mut(&maker_client) {
+                    list.retain(|&x| x != maker_id);
+                    if list.is_empty() {
+                        self.client_to_id.remove(&maker_client);
+                    }
+                }
             }
             fill_count += 1;
         }
@@ -295,7 +308,12 @@ impl HpEngine {
                 taker_open_lot: taker_open,
             });
             if maker_gone && maker_client != 0 {
-                self.client_to_id.remove(&maker_client);
+                if let Some(list) = self.client_to_id.get_mut(&maker_client) {
+                    list.retain(|&x| x != maker_id);
+                    if list.is_empty() {
+                        self.client_to_id.remove(&maker_client);
+                    }
+                }
             }
             fill_count += 1;
         }
@@ -387,23 +405,85 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_client_id_is_rejected() {
+    fn same_client_multi_resting_orders_allowed() {
+        let mut e = HpEngine::new();
+        let ev1: Vec<HpEvent> = e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 100,
+            qty_lot: 1,
+            ts: 1,
+            client_id: 42,
+        }).to_vec();
+        let ev2: Vec<HpEvent> = e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 101,
+            qty_lot: 1,
+            ts: 2,
+            client_id: 42,
+        }).to_vec();
+        // 同 client 两单都 rest（支持多在途），不再静默丢弃。
+        assert!(ev1.iter().any(|e| matches!(e, HpEvent::Rest { .. })));
+        assert!(ev2.iter().any(|e| matches!(e, HpEvent::Rest { .. })));
+        assert_eq!(e.client_map_len(), 1); // 一个 client，两个在途单
+        assert_eq!(e.client_to_id.get(&42).map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn cancel_by_order_id_removes_only_that_order() {
         let mut e = HpEngine::new();
         e.on_order(HpCommand::Limit {
             side: Side::Buy,
             price_tick: 100,
             qty_lot: 1,
             ts: 1,
-            client_id: 42,
+            client_id: 9,
         });
-        let ev = e.on_order(HpCommand::Limit {
+        let ev2: Vec<HpEvent> = e.on_order(HpCommand::Limit {
             side: Side::Buy,
             price_tick: 101,
             qty_lot: 1,
             ts: 2,
-            client_id: 42,
+            client_id: 9,
+        }).to_vec();
+        let second_id = match &ev2[0] {
+            HpEvent::Rest { id, .. } => *id,
+            _ => panic!("expected Rest"),
+        };
+        let first_id = second_id - 1; // slot 连续分配（新 store，无复用）
+        let ev: Vec<HpEvent> = e.on_order(HpCommand::Cancel { id: first_id }).to_vec();
+        match &ev[0] {
+            HpEvent::Revoke { id, reason: 0, .. } => assert_eq!(*id, first_id),
+            other => panic!("expected Revoke, got {other:?}"),
+        }
+        // 只撤一单：第二单仍在途，client 映射保留一个条目。
+        assert_eq!(e.client_to_id.get(&9).map(Vec::len), Some(1));
+        assert!(e.client_to_id.get(&9).unwrap().contains(&second_id));
+    }
+
+    #[test]
+    fn maker_fully_filled_clears_client_entry() {
+        let mut e = HpEngine::new();
+        // client 3 挂买 100 x2 → rest
+        e.on_order(HpCommand::Limit {
+            side: Side::Buy,
+            price_tick: 100,
+            qty_lot: 2,
+            ts: 1,
+            client_id: 3,
         });
-        assert!(ev.is_empty());
+        assert_eq!(e.client_map_len(), 1);
+        // client 4 卖 100 x2 → 全部吃掉 maker
+        let ev: Vec<HpEvent> = e.on_order(HpCommand::Limit {
+            side: Side::Sell,
+            price_tick: 100,
+            qty_lot: 2,
+            ts: 2,
+            client_id: 4,
+        }).to_vec();
+        assert!(ev.iter().any(|e| matches!(e, HpEvent::Fill { .. })));
+        // maker（client 3）被吃光 → 其 client 条目清空
+        assert_eq!(e.client_map_len(), 0);
+        assert!(e.client_to_id.is_empty());
     }
 
     #[test]

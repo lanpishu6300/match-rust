@@ -1,0 +1,4 @@
+<h3>12.7 云 VM 独立验证（2026-09-21，Linux 无特权环境）</h3>
+<p>在无 root / 无 CAP_NET_RAW / 无大页内存的云 VM（Ubuntu 22.04，2 核 3GB，virtio-net）上完成 DPDK 23.11.4 用户级编译（meson <code>-Dmax_numa_nodes=1</code>，跳过 libnuma/libelf；libpcap 头取自源码，<code>pcap.pc</code> 指向用户路径）并复现 pcap 回放闭环，验证网关代码跨环境可移植：</p>
+<ul><li><b>5000 单</b>：15001 帧（1 HELLO_ACK + 10000 ORDER_ACK + 5000 REPORT）<b>100% 交付</b>，report-delay avg 0.9µs / p50 1.0µs / p99 3.0µs，165k 单/s</li><li><b>20000 单</b>：60001 帧（1 + 40000 + 20000）<b>100% 交付</b>，avg 0.7µs / p50 1.0µs / p99 2.0µs，236k 单/s</li><li>与容器数据同量级（容器 avg 0.5µs / p99 2µs / 322k 单/s）；吞吐差异为 2 核 VM vs 容器多核 + pcap 文件 IO，延迟路径一致</li></ul>
+<p>工程要点（无特权 DPDK）：build.rs 支持 <code>DPDK_HOME</code> 环境变量探测用户级安装（lib + include/dpdk 符号链接）；bridge.c 编译加 <code>-mssse3</code>（DPDK rte_memcpy 内建需要）；EAL 以 <code>--no-huge --no-pci -m 512</code> 运行（无大页内存环境）；实时网卡收发因云 VM 无 CAP_NET_RAW 不可行，pcap 文件回放为确定性闭环验证路径。</p>
